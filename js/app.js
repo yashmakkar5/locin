@@ -1,20 +1,33 @@
 /**
- * Locin Application Entrypoint & Main Layout Component
- * Author: 3rd Year CSE Engineering Project
+ * Locin Application Entrypoint & Main Layout Component (Phase 2 - Production MVP)
  */
 
 const { useState, useEffect } = React;
 
 function AppContent() {
-  const { authView, setAuthView } = window.useAuth();
+  const { authView, setAuthView, loading } = window.useAuth();
   const [activeTab, setActiveTab] = useState('home');
 
-  // Refresh Lucide Icons on view update
+  // Refresh Lucide Icons on view updates
   useEffect(() => {
     if (window.lucide) {
       window.lucide.createIcons();
     }
-  }, [authView, activeTab]);
+  }, [authView, activeTab, loading]);
+
+  if (loading) {
+    return (
+      <div style={{
+        minHeight: '100vh',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: 'var(--bg-dark)'
+      }}>
+        <window.LoadingSpinner message="Authenticating session with Supabase..." />
+      </div>
+    );
+  }
 
   if (authView === 'landing') {
     return (

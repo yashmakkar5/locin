@@ -1,287 +1,266 @@
 /**
  * ============================================================================
- * GoalContext Provider
- * Global Reactive State for Goals -> Tasks -> Subtasks hierarchy,
- * Daily Check-in celebrations, Fire Streak system, and Calendar heatmap.
+ * GoalContext Provider (Phase 2 - Real Database State Management)
+ * Fetches and syncs real user data from Supabase backend.
+ * Zero hardcoded arrays or fake fallbacks.
  * ============================================================================
  */
 
-const { createContext, useContext, useState, useEffect } = React;
+const { createContext, useContext, useState, useEffect, useCallback } = React;
 
 const GoalContext = createContext();
-
-// Sample initial data matching prompt requirements
-const INITIAL_DEMO_GOALS = [
-  {
-    id: 'g-1',
-    title: 'Learn AI',
-    category: 'Technology',
-    color: '#6366f1',
-    created_at: new Date().toISOString(),
-    tasks: [
-      {
-        id: 't-101',
-        title: 'Python Basics',
-        completed: false,
-        subtasks: [
-          { id: 'st-1001', title: 'Variables & Data Types', completed: true },
-          { id: 'st-1002', title: 'Loops & Conditionals', completed: true },
-          { id: 'st-1003', title: 'Functions & Modules', completed: false }
-        ]
-      },
-      {
-        id: 't-102',
-        title: 'Machine Learning',
-        completed: false,
-        subtasks: [
-          { id: 'st-1004', title: 'Linear & Logistic Regression', completed: false },
-          { id: 'st-1005', title: 'Classification Algorithms', completed: false }
-        ]
-      }
-    ]
-  },
-  {
-    id: 'g-2',
-    title: 'Peak Physical Fitness',
-    category: 'Health',
-    color: '#ec4899',
-    created_at: new Date().toISOString(),
-    tasks: [
-      {
-        id: 't-201',
-        title: 'Daily Fitness Protocol',
-        completed: true,
-        subtasks: [
-          { id: 'st-2001', title: '30 Mins Morning Run', completed: true },
-          { id: 'st-2002', title: 'Hydrate 3 Liters Water', completed: true },
-          { id: 'st-2003', title: 'Post-Workout Stretching', completed: true }
-        ]
-      }
-    ]
-  }
-];
 
 window.GoalProvider = function({ children }) {
   const { user } = window.useAuth();
 
-  // Goals State
   const [goals, setGoals] = useState([]);
+  const [streak, setStreak] = useState({ current_streak: 0, longest_streak: 0, last_checkin_date: null });
+  const [calendarHistory, setCalendarHistory] = useState({});
+  const [profile, setProfile] = useState(null);
   
-  // Streak State
-  const [streak, setStreak] = useState({
-    current: 7,
-    longest: 14,
-    lastCheckInDate: new Date().toISOString().split('T')[0]
-  });
+  const [dataLoading, setDataLoading] = useState(false);
+  const [errorBanner, setErrorBanner] = useState(null);
+  const [feedbackBanner, setFeedbackBanner] = useState(null);
 
-  // Calendar Check-in History (Map of YYYY-MM-DD -> status)
-  const [calendarHistory, setCalendarHistory] = useState(() => {
-    const today = new Date();
-    const history = {};
-    // Pre-fill last 7 days for realistic heatmap demonstration
-    for (let i = 0; i < 7; i++) {
-      const d = new Date(today);
-      d.setDate(d.getDate() - i);
-      const dateStr = d.toISOString().split('T')[0];
-      history[dateStr] = true;
-    }
-    return history;
-  });
-
-  // Load Goals on mount or user change
-  useEffect(() => {
-    const userId = user ? user.id : 'demo';
-    const storedGoals = localStorage.getItem(`locin_goals_${userId}`);
-    if (storedGoals) {
-      setGoals(JSON.parse(storedGoals));
-    } else {
-      setGoals(INITIAL_DEMO_GOALS);
-      localStorage.setItem(`locin_goals_${userId}`, JSON.stringify(INITIAL_DEMO_GOALS));
+  // Load all user data whenever user logs in or mounts
+  const refreshUserData = useCallback(async () => {
+    if (!user) {
+      setGoals([]);
+      setStreak({ current_streak: 0, longest_streak: 0, last_checkin_date: null });
+      setCalendarHistory({});
+      setProfile(null);
+      return;
     }
 
-    const storedStreak = localStorage.getItem(`locin_streak_${userId}`);
-    if (storedStreak) {
-      setStreak(JSON.parse(storedStreak));
+    setDataLoading(true);
+    setErrorBanner(null);
+
+    try {
+      // 1. Fetch Goals tree
+      const goalsTree = await window.goalService.fetchUserGoals(user.id);
+      setGoals(goalsTree);
+
+      // 2. Fetch Fire Streak
+      const streakData = await window.goalService.fetchStreak(user.id);
+      setStreak(streakData);
+
+      // 3. Fetch Calendar Check-ins for Current Month
+      const today = new Date();
+      const calMap = await window.goalService.fetchCalendarCheckIns(user.id, today.getFullYear(), today.getMonth());
+      setCalendarHistory(calMap);
+
+      // 4. Fetch User Profile
+      const profData = await window.goalService.fetchUserProfile(user.id);
+      setProfile(profData);
+    } catch (err) {
+      console.error("[GoalContext] Error loading user data:", err.message);
+      setErrorBanner("Failed to sync data with Supabase: " + err.message);
+    } finally {
+      setDataLoading(false);
     }
   }, [user]);
 
-  // Persist Goals whenever state updates
-  const saveGoals = (updatedGoals) => {
-    setGoals(updatedGoals);
-    const userId = user ? user.id : 'demo';
-    window.goalService.syncGoals(userId, updatedGoals);
-  };
+  useEffect(() => {
+    refreshUserData();
+  }, [user, refreshUserData]);
 
   // --- CRUD Operations for 3-Tier Hierarchy ---
 
   // 1. Goal CRUD
-  const addGoal = (title, category = 'General', color = '#6366f1') => {
-    const newGoal = {
-      id: 'g-' + Date.now(),
-      title,
-      category,
-      color,
-      created_at: new Date().toISOString(),
-      tasks: []
-    };
-    const updated = [newGoal, ...goals];
-    saveGoals(updated);
+  const addGoal = async (title, category = 'General', color = '#6366f1') => {
+    if (!user) return;
+    setErrorBanner(null);
+    try {
+      const newGoal = await window.goalService.createGoal(user.id, title, category, color);
+      setGoals(prev => [newGoal, ...prev]);
+      setFeedbackBanner("🎯 Goal created successfully!");
+      setTimeout(() => setFeedbackBanner(null), 3000);
+    } catch (err) {
+      setErrorBanner("Failed to create goal: " + err.message);
+    }
   };
 
-  const deleteGoal = (goalId) => {
-    const updated = goals.filter(g => g.id !== goalId);
-    saveGoals(updated);
+  const deleteGoal = async (goalId) => {
+    if (!user) return;
+    setErrorBanner(null);
+    try {
+      await window.goalService.deleteGoal(goalId);
+      setGoals(prev => prev.filter(g => g.id !== goalId));
+      setFeedbackBanner("Goal deleted.");
+      setTimeout(() => setFeedbackBanner(null), 3000);
+    } catch (err) {
+      setErrorBanner("Failed to delete goal: " + err.message);
+    }
   };
 
   // 2. Task CRUD
-  const addTask = (goalId, taskTitle) => {
-    const updated = goals.map(goal => {
-      if (goal.id === goalId) {
-        return {
-          ...goal,
-          tasks: [
-            ...goal.tasks,
-            {
-              id: 't-' + Date.now(),
-              title: taskTitle,
-              completed: false,
-              subtasks: []
-            }
-          ]
-        };
-      }
-      return goal;
-    });
-    saveGoals(updated);
+  const addTask = async (goalId, taskTitle) => {
+    if (!user) return;
+    setErrorBanner(null);
+    try {
+      const newTask = await window.goalService.createTask(user.id, goalId, taskTitle);
+      setGoals(prev => prev.map(g => {
+        if (g.id === goalId) {
+          return { ...g, tasks: [...g.tasks, newTask] };
+        }
+        return g;
+      }));
+      setFeedbackBanner("📌 Task added.");
+      setTimeout(() => setFeedbackBanner(null), 3000);
+    } catch (err) {
+      setErrorBanner("Failed to add task: " + err.message);
+    }
   };
 
-  const deleteTask = (goalId, taskId) => {
-    const updated = goals.map(goal => {
-      if (goal.id === goalId) {
-        return {
-          ...goal,
-          tasks: goal.tasks.filter(t => t.id !== taskId)
-        };
-      }
-      return goal;
-    });
-    saveGoals(updated);
+  const deleteTask = async (goalId, taskId) => {
+    if (!user) return;
+    setErrorBanner(null);
+    try {
+      await window.goalService.deleteTask(taskId);
+      setGoals(prev => prev.map(g => {
+        if (g.id === goalId) {
+          return { ...g, tasks: g.tasks.filter(t => t.id !== taskId) };
+        }
+        return g;
+      }));
+    } catch (err) {
+      setErrorBanner("Failed to delete task: " + err.message);
+    }
   };
 
   // 3. Subtask CRUD & Completion Toggling
-  const addSubtask = (goalId, taskId, subtaskTitle) => {
-    const updated = goals.map(goal => {
-      if (goal.id === goalId) {
-        return {
-          ...goal,
-          tasks: goal.tasks.map(task => {
-            if (task.id === taskId) {
-              return {
-                ...task,
-                subtasks: [
-                  ...task.subtasks,
-                  {
-                    id: 'st-' + Date.now(),
-                    title: subtaskTitle,
-                    completed: false
-                  }
-                ]
-              };
-            }
-            return task;
-          })
-        };
-      }
-      return goal;
-    });
-    saveGoals(updated);
+  const addSubtask = async (goalId, taskId, subtaskTitle) => {
+    if (!user) return;
+    setErrorBanner(null);
+    try {
+      const newSubtask = await window.goalService.createSubtask(user.id, taskId, subtaskTitle);
+      setGoals(prev => prev.map(g => {
+        if (g.id === goalId) {
+          return {
+            ...g,
+            tasks: g.tasks.map(t => {
+              if (t.id === taskId) {
+                return { ...t, subtasks: [...t.subtasks, newSubtask] };
+              }
+              return t;
+            })
+          };
+        }
+        return g;
+      }));
+    } catch (err) {
+      setErrorBanner("Failed to add subtask: " + err.message);
+    }
   };
 
-  const toggleSubtask = (goalId, taskId, subtaskId) => {
-    const updated = goals.map(goal => {
-      if (goal.id === goalId) {
+  const toggleSubtask = async (goalId, taskId, subtaskId, currentStatus) => {
+    if (!user) return;
+    setErrorBanner(null);
+    const newStatus = !currentStatus;
+
+    // Optimistic Update
+    setGoals(prev => prev.map(g => {
+      if (g.id === goalId) {
         return {
-          ...goal,
-          tasks: goal.tasks.map(task => {
-            if (task.id === taskId) {
-              const newSubtasks = task.subtasks.map(st => {
+          ...g,
+          tasks: g.tasks.map(t => {
+            if (t.id === taskId) {
+              const updatedSubtasks = t.subtasks.map(st => {
                 if (st.id === subtaskId) {
-                  return { ...st, completed: !st.completed };
+                  return { ...st, completed: newStatus };
                 }
                 return st;
               });
-              // Check if all subtasks are complete
-              const allSubtasksDone = newSubtasks.every(st => st.completed);
-              return {
-                ...task,
-                completed: allSubtasksDone,
-                subtasks: newSubtasks
-              };
+              const allDone = updatedSubtasks.length > 0 && updatedSubtasks.every(st => st.completed);
+              return { ...t, completed: allDone, subtasks: updatedSubtasks };
             }
-            return task;
+            return t;
           })
         };
       }
-      return goal;
-    });
-    saveGoals(updated);
+      return g;
+    }));
+
+    try {
+      await window.goalService.toggleSubtask(subtaskId, newStatus);
+    } catch (err) {
+      setErrorBanner("Failed to toggle subtask: " + err.message);
+      refreshUserData(); // Revert on failure
+    }
   };
 
-  const deleteSubtask = (goalId, taskId, subtaskId) => {
-    const updated = goals.map(goal => {
-      if (goal.id === goalId) {
-        return {
-          ...goal,
-          tasks: goal.tasks.map(task => {
-            if (task.id === taskId) {
-              return {
-                ...task,
-                subtasks: task.subtasks.filter(st => st.id !== subtaskId)
-              };
-            }
-            return task;
-          })
-        };
-      }
-      return goal;
-    });
-    saveGoals(updated);
+  const deleteSubtask = async (goalId, taskId, subtaskId) => {
+    if (!user) return;
+    setErrorBanner(null);
+    try {
+      await window.goalService.deleteSubtask(subtaskId);
+      setGoals(prev => prev.map(g => {
+        if (g.id === goalId) {
+          return {
+            ...g,
+            tasks: g.tasks.map(t => {
+              if (t.id === taskId) {
+                return { ...t, subtasks: t.subtasks.filter(st => st.id !== subtaskId) };
+              }
+              return t;
+            })
+          };
+        }
+        return g;
+      }));
+    } catch (err) {
+      setErrorBanner("Failed to delete subtask: " + err.message);
+    }
   };
 
   // --- Daily Check-in & Fire Streak Logic ---
-  const triggerDailyCheckIn = () => {
-    const todayStr = new Date().toISOString().split('T')[0];
+  const triggerDailyCheckIn = async () => {
+    if (!user) return;
+    setErrorBanner(null);
 
-    // Trigger Canvas Confetti Celebration!
-    if (window.confetti) {
-      window.confetti({
-        particleCount: 100,
-        spread: 70,
-        origin: { y: 0.6 }
-      });
+    // Calculate completed subtasks count
+    let completedCount = 0;
+    goals.forEach(g => g.tasks.forEach(t => t.subtasks.forEach(st => {
+      if (st.completed) completedCount++;
+    })));
+
+    try {
+      const res = await window.goalService.recordDailyCheckIn(user.id, completedCount);
+
+      if (res.alreadyCheckedIn) {
+        setFeedbackBanner("⚡ " + res.message);
+        setTimeout(() => setFeedbackBanner(null), 3500);
+      } else {
+        // Trigger Canvas Confetti Celebration!
+        if (window.confetti) {
+          window.confetti({ particleCount: 120, spread: 80, origin: { y: 0.6 } });
+        }
+        setStreak(res.streak);
+        const todayStr = new Date().toISOString().split('T')[0];
+        setCalendarHistory(prev => ({ ...prev, [todayStr]: true }));
+        setFeedbackBanner("🔥 " + res.message);
+        setTimeout(() => setFeedbackBanner(null), 3500);
+      }
+    } catch (err) {
+      setErrorBanner("Check-in failed: " + err.message);
     }
-
-    // Update Streak Count
-    const newCurrent = streak.current + 1;
-    const newLongest = Math.max(newCurrent, streak.longest);
-    const updatedStreak = {
-      current: newCurrent,
-      longest: newLongest,
-      lastCheckInDate: todayStr
-    };
-
-    setStreak(updatedStreak);
-    const userId = user ? user.id : 'demo';
-    localStorage.setItem(`locin_streak_${userId}`, JSON.stringify(updatedStreak));
-
-    // Update Calendar History
-    setCalendarHistory(prev => ({ ...prev, [todayStr]: true }));
-
-    // Sync with Supabase if configured
-    window.goalService.recordCheckIn(userId, updatedStreak);
   };
 
-  // --- Global Progress & Stats Calculations ---
+  // --- Profile Updates ---
+  const updateUserProfile = async (fullName) => {
+    if (!user) return;
+    setErrorBanner(null);
+    try {
+      const updated = await window.goalService.updateProfile(user.id, fullName);
+      setProfile(updated);
+      setFeedbackBanner("Profile name updated successfully!");
+      setTimeout(() => setFeedbackBanner(null), 3000);
+    } catch (err) {
+      setErrorBanner("Failed to update profile: " + err.message);
+    }
+  };
+
+  // --- Live Metrics Calculation from Database State ---
   const getStats = () => {
     let totalGoals = goals.length;
     let totalTasks = 0;
@@ -311,8 +290,8 @@ window.GoalProvider = function({ children }) {
       totalSubtasks,
       completedSubtasks,
       completionPercentage,
-      currentStreak: streak.current,
-      longestStreak: streak.longest
+      currentStreak: streak.current_streak || 0,
+      longestStreak: streak.longest_streak || 0
     };
   };
 
@@ -320,6 +299,11 @@ window.GoalProvider = function({ children }) {
     goals,
     streak,
     calendarHistory,
+    profile,
+    dataLoading,
+    errorBanner,
+    feedbackBanner,
+    refreshUserData,
     addGoal,
     deleteGoal,
     addTask,
@@ -328,6 +312,7 @@ window.GoalProvider = function({ children }) {
     toggleSubtask,
     deleteSubtask,
     triggerDailyCheckIn,
+    updateUserProfile,
     getStats
   };
 

@@ -1,11 +1,23 @@
 /**
  * Goal Management Component (3-Tier Hierarchy: Goal -> Task -> Subtask)
+ * Connected directly to Supabase PostgreSQL DB. Zero fake data.
  */
 
 const { useState } = React;
 
 window.GoalManager = function() {
-  const { goals, addGoal, deleteGoal, addTask, deleteTask, addSubtask, toggleSubtask, deleteSubtask } = window.useGoals();
+  const { 
+    goals, 
+    addGoal, 
+    deleteGoal, 
+    addTask, 
+    deleteTask, 
+    addSubtask, 
+    toggleSubtask, 
+    deleteSubtask,
+    dataLoading,
+    errorBanner
+  } = window.useGoals();
 
   const [isGoalModalOpen, setIsGoalModalOpen] = useState(false);
   const [goalTitle, setGoalTitle] = useState('');
@@ -17,26 +29,26 @@ window.GoalManager = function() {
   const [subtaskModalInfo, setSubtaskModalInfo] = useState(null); // { goalId, taskId }
   const [subtaskTitle, setSubtaskTitle] = useState('');
 
-  const handleCreateGoal = (e) => {
+  const handleCreateGoal = async (e) => {
     e.preventDefault();
     if (!goalTitle.trim()) return;
-    addGoal(goalTitle, goalCategory);
+    await addGoal(goalTitle, goalCategory);
     setGoalTitle('');
     setIsGoalModalOpen(false);
   };
 
-  const handleCreateTask = (e) => {
+  const handleCreateTask = async (e) => {
     e.preventDefault();
     if (!taskTitle.trim() || !taskModalGoalId) return;
-    addTask(taskModalGoalId, taskTitle);
+    await addTask(taskModalGoalId, taskTitle);
     setTaskTitle('');
     setTaskModalGoalId(null);
   };
 
-  const handleCreateSubtask = (e) => {
+  const handleCreateSubtask = async (e) => {
     e.preventDefault();
     if (!subtaskTitle.trim() || !subtaskModalInfo) return;
-    addSubtask(subtaskModalInfo.goalId, subtaskModalInfo.taskId, subtaskTitle);
+    await addSubtask(subtaskModalInfo.goalId, subtaskModalInfo.taskId, subtaskTitle);
     setSubtaskTitle('');
     setSubtaskModalInfo(null);
   };
@@ -60,18 +72,28 @@ window.GoalManager = function() {
         </button>
       </div>
 
-      {/* Goals List */}
-      {goals.length === 0 ? (
+      {errorBanner && (
+        <div className="btn-danger" style={{ padding: 12, borderRadius: 8, marginBottom: 20, fontSize: '0.85rem' }}>
+          ⚠️ {errorBanner}
+        </div>
+      )}
+
+      {dataLoading ? (
+        <window.LoadingSpinner message="Syncing goals with Supabase database..." />
+      ) : goals.length === 0 ? (
         <div className="glass-card" style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>
-          <p>No goals created yet. Click "Create New Goal" to start tracking!</p>
+          <p style={{ fontSize: '1.1rem', marginBottom: 12 }}>No goals created yet in your Supabase account.</p>
+          <button className="btn btn-primary btn-sm" onClick={() => setIsGoalModalOpen(true)}>
+            + Create Your First Goal
+          </button>
         </div>
       ) : (
         goals.map(goal => {
-          // Calculate goal completion %
+          // Calculate goal progress
           let subtaskCount = 0;
           let doneSubtasks = 0;
-          goal.tasks.forEach(t => {
-            t.subtasks.forEach(st => {
+          (goal.tasks || []).forEach(t => {
+            (t.subtasks || []).forEach(st => {
               subtaskCount++;
               if (st.completed) doneSubtasks++;
             });
@@ -115,7 +137,7 @@ window.GoalManager = function() {
 
               {/* Level 2: Tasks Tree */}
               <div className="task-tree">
-                {goal.tasks.length === 0 ? (
+                {(goal.tasks || []).length === 0 ? (
                   <div style={{ fontSize: '0.85rem', color: 'var(--text-subtle)', fontStyle: 'italic' }}>
                     No tasks added yet under this goal. Click "+ Add Task" above.
                   </div>
@@ -147,7 +169,7 @@ window.GoalManager = function() {
 
                       {/* Level 3: Subtasks Tree */}
                       <div className="subtask-tree">
-                        {task.subtasks.length === 0 ? (
+                        {(task.subtasks || []).length === 0 ? (
                           <div style={{ fontSize: '0.8rem', color: 'var(--text-subtle)' }}>
                             No subtasks. Add subtasks to track daily completion.
                           </div>
@@ -157,7 +179,10 @@ window.GoalManager = function() {
                               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                                 <div 
                                   className={`custom-checkbox ${subtask.completed ? 'checked' : ''}`}
-                                  onClick={() => toggleSubtask(goal.id, task.id, subtask.id)}
+                                  onClick={() => toggleSubtask(goal.id, task.id, subtask.id, subtask.completed)}
+                                  role="button"
+                                  tabIndex={0}
+                                  aria-label={`Toggle subtask ${subtask.title}`}
                                 >
                                   {subtask.completed && '✓'}
                                 </div>
@@ -172,6 +197,7 @@ window.GoalManager = function() {
                               <button 
                                 style={{ background: 'none', border: 'none', color: 'var(--text-subtle)', cursor: 'pointer', fontSize: '0.8rem' }}
                                 onClick={() => deleteSubtask(goal.id, task.id, subtask.id)}
+                                title="Delete subtask"
                               >
                                 ✕
                               </button>
@@ -196,11 +222,12 @@ window.GoalManager = function() {
       >
         <form onSubmit={handleCreateGoal}>
           <div className="form-group">
-            <label>Goal Title</label>
+            <label htmlFor="goalTitleInput">Goal Title</label>
             <input 
+              id="goalTitleInput"
               type="text"
               className="form-input"
-              placeholder="e.g. Learn AI & Machine Learning"
+              placeholder="e.g. Master Full-Stack Web Development"
               value={goalTitle}
               onChange={(e) => setGoalTitle(e.target.value)}
               required
@@ -208,8 +235,9 @@ window.GoalManager = function() {
           </div>
 
           <div className="form-group">
-            <label>Category</label>
+            <label htmlFor="goalCategorySelect">Category</label>
             <select 
+              id="goalCategorySelect"
               className="form-input"
               value={goalCategory}
               onChange={(e) => setGoalCategory(e.target.value)}
@@ -222,7 +250,7 @@ window.GoalManager = function() {
           </div>
 
           <button type="submit" className="btn btn-primary" style={{ width: '100%', marginTop: 12 }}>
-            Save Goal
+            Save Goal to Supabase
           </button>
         </form>
       </window.Modal>
@@ -235,11 +263,12 @@ window.GoalManager = function() {
       >
         <form onSubmit={handleCreateTask}>
           <div className="form-group">
-            <label>Task Title</label>
+            <label htmlFor="taskTitleInput">Task Title</label>
             <input 
+              id="taskTitleInput"
               type="text"
               className="form-input"
-              placeholder="e.g. Python Basics"
+              placeholder="e.g. Supabase Auth Integration"
               value={taskTitle}
               onChange={(e) => setTaskTitle(e.target.value)}
               required
@@ -247,7 +276,7 @@ window.GoalManager = function() {
           </div>
 
           <button type="submit" className="btn btn-primary" style={{ width: '100%', marginTop: 12 }}>
-            Add Task
+            Save Task
           </button>
         </form>
       </window.Modal>
@@ -260,11 +289,12 @@ window.GoalManager = function() {
       >
         <form onSubmit={handleCreateSubtask}>
           <div className="form-group">
-            <label>Subtask Title</label>
+            <label htmlFor="subtaskTitleInput">Subtask Title</label>
             <input 
+              id="subtaskTitleInput"
               type="text"
               className="form-input"
-              placeholder="e.g. Variables & Data Types"
+              placeholder="e.g. Implement Row Level Security"
               value={subtaskTitle}
               onChange={(e) => setSubtaskTitle(e.target.value)}
               required
@@ -272,7 +302,7 @@ window.GoalManager = function() {
           </div>
 
           <button type="submit" className="btn btn-primary" style={{ width: '100%', marginTop: 12 }}>
-            Add Subtask
+            Save Subtask
           </button>
         </form>
       </window.Modal>

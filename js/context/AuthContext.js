@@ -1,8 +1,7 @@
 /**
  * ============================================================================
- * AuthContext Provider
- * Global React Context managing user authentication state, current user,
- * login modal visibility, and auth events.
+ * AuthContext Provider (Phase 2 - Real Supabase Auth)
+ * Handles session listener, protected route redirects, signup, login, logout.
  * ============================================================================
  */
 
@@ -11,45 +10,70 @@ const { createContext, useContext, useState, useEffect } = React;
 const AuthContext = createContext();
 
 window.AuthProvider = function({ children }) {
-  const [user, setUser] = useState(() => {
-    const storedUser = localStorage.getItem('locin_active_user');
-    return storedUser ? JSON.parse(storedUser) : null;
-  });
-  
-  const [loading, setLoading] = useState(false);
-  const [authView, setAuthView] = useState('landing'); // 'landing' | 'auth' | 'dashboard'
+  const [user, setUser] = useState(null);
+  const [session, setSession] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [authView, setAuthView] = useState('landing'); // 'landing' | 'login' | 'signup' | 'dashboard'
 
+  // Initialize & Listen to Supabase Auth State Changes
   useEffect(() => {
-    if (user && authView === 'landing') {
-      setAuthView('dashboard');
-    }
-  }, []);
+    let mounted = true;
 
-  // Listen to Supabase Auth State Changes if connected
-  useEffect(() => {
-    if (window.isSupabaseConfigured() && window.supabase) {
-      /* SUPABASE AUTH LISTENER: Automatically handles login redirect / token changes */
-      const { data: { subscription } } = window.supabase.auth.onAuthStateChange(
-        (event, session) => {
-          if (session?.user) {
-            const formattedUser = {
-              id: session.user.id,
-              name: session.user.user_metadata?.full_name || session.user.email?.split('@')[0],
-              email: session.user.email,
-              avatarUrl: session.user.user_metadata?.avatar_url || null
-            };
-            setUser(formattedUser);
-            localStorage.setItem('locin_active_user', JSON.stringify(formattedUser));
+    async function initAuth() {
+      if (!window.isSupabaseConfigured()) {
+        setLoading(false);
+        return;
+      }
+
+      try {
+        const client = window.getSupabaseClient();
+        
+        // 1. Get Initial Session
+        const { data: { session: initialSession } } = await client.auth.getSession();
+        if (mounted) {
+          if (initialSession?.user) {
+            setSession(initialSession);
+            setUser(initialSession.user);
             setAuthView('dashboard');
           } else {
+            setSession(null);
             setUser(null);
-            localStorage.removeItem('locin_active_user');
+            setAuthView('landing');
           }
         }
-      );
 
-      return () => subscription?.unsubscribe();
+        // 2. Register Auth Change Listener
+        const { data: { subscription } } = client.auth.onAuthStateChange(
+          async (event, currentSession) => {
+            if (mounted) {
+              if (currentSession?.user) {
+                setSession(currentSession);
+                setUser(currentSession.user);
+                setAuthView('dashboard');
+              } else {
+                setSession(null);
+                setUser(null);
+                setAuthView('landing');
+              }
+            }
+          }
+        );
+
+        return () => {
+          subscription?.unsubscribe();
+        };
+      } catch (err) {
+        console.error("[AuthContext] Initialization error:", err.message);
+      } finally {
+        if (mounted) setLoading(false);
+      }
     }
+
+    initAuth();
+
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   const login = async (email, password) => {
@@ -57,7 +81,6 @@ window.AuthProvider = function({ children }) {
     try {
       const loggedUser = await window.authService.signIn(email, password);
       setUser(loggedUser);
-      localStorage.setItem('locin_active_user', JSON.stringify(loggedUser));
       setAuthView('dashboard');
       return { success: true };
     } catch (err) {
@@ -72,7 +95,6 @@ window.AuthProvider = function({ children }) {
     try {
       const newUser = await window.authService.signUp(email, password, fullName);
       setUser(newUser);
-      localStorage.setItem('locin_active_user', JSON.stringify(newUser));
       setAuthView('dashboard');
       return { success: true };
     } catch (err) {
@@ -85,12 +107,7 @@ window.AuthProvider = function({ children }) {
   const loginWithGoogle = async () => {
     setLoading(true);
     try {
-      const googleUser = await window.authService.signInWithGoogle();
-      if (googleUser && !window.isSupabaseConfigured()) {
-        setUser(googleUser);
-        localStorage.setItem('locin_active_user', JSON.stringify(googleUser));
-        setAuthView('dashboard');
-      }
+      await window.authService.signInWithGoogle();
       return { success: true };
     } catch (err) {
       return { success: false, error: err.message };
@@ -100,14 +117,22 @@ window.AuthProvider = function({ children }) {
   };
 
   const logout = async () => {
-    await window.authService.signOut();
-    setUser(null);
-    localStorage.removeItem('locin_active_user');
-    setAuthView('landing');
+    setLoading(true);
+    try {
+      await window.authService.signOut();
+    } catch (err) {
+      console.error("[AuthContext] Logout error:", err.message);
+    } finally {
+      setUser(null);
+      setSession(null);
+      setAuthView('landing');
+      setLoading(false);
+    }
   };
 
   const value = {
     user,
+    session,
     loading,
     authView,
     setAuthView,

@@ -1,7 +1,5 @@
 /**
- * Authentication Page Component
- * Clean, minimalist auth card with mesh gradient backdrop,
- * quote banner, Google OAuth, Email/Password, and Demo Login.
+ * Authentication Page Component (Phase 2 - Production Supabase Auth)
  */
 
 const { useState } = React;
@@ -10,34 +8,43 @@ window.AuthPage = function({ mode = 'login', onBackToLanding }) {
   const { login, signup, loginWithGoogle, loading } = window.useAuth();
 
   const [isSignUp, setIsSignUp] = useState(mode === 'signup');
-  const [email, setEmail] = useState('scholar@locin.edu');
-  const [password, setPassword] = useState('password123');
-  const [fullName, setFullName] = useState('Student Builder');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [fullName, setFullName] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setErrorMsg('');
 
+    if (!email || !password) {
+      setErrorMsg('Please enter both email and password.');
+      return;
+    }
+
     if (isSignUp) {
+      if (!fullName) {
+        setErrorMsg('Please enter your full name.');
+        return;
+      }
       const res = await signup(email, password, fullName);
-      if (!res.success) setErrorMsg(res.error || 'Failed to sign up');
+      if (!res.success) setErrorMsg(res.error || 'Failed to create account.');
     } else {
       const res = await login(email, password);
-      if (!res.success) setErrorMsg(res.error || 'Invalid credentials');
+      if (!res.success) setErrorMsg(res.error || 'Invalid credentials. Please try again.');
     }
   };
 
   const handleGoogleLogin = async () => {
     setErrorMsg('');
     const res = await loginWithGoogle();
-    if (!res.success) setErrorMsg(res.error || 'Google login failed');
+    if (!res.success) setErrorMsg(res.error || 'Google login failed.');
   };
 
   return (
     <div className="auth-container">
       <div className="glass-card auth-wrapper">
-        {/* Left Side: Quote Overlay */}
+        {/* Left Side: Quote Banner */}
         <div className="auth-quote-side">
           <div>
             <div className="logo-container" style={{ marginBottom: 40 }}>
@@ -73,16 +80,17 @@ window.AuthPage = function({ mode = 'login', onBackToLanding }) {
           </div>
 
           {errorMsg && (
-            <div className="btn-danger" style={{ padding: 10, borderRadius: 8, marginBottom: 16, fontSize: '0.85rem' }}>
-              {errorMsg}
+            <div className="btn-danger" style={{ padding: 12, borderRadius: 8, marginBottom: 16, fontSize: '0.85rem' }}>
+              ⚠️ {errorMsg}
             </div>
           )}
 
           <form onSubmit={handleSubmit}>
             {isSignUp && (
               <div className="form-group">
-                <label>Full Name</label>
+                <label htmlFor="fullNameInput">Full Name</label>
                 <input 
+                  id="fullNameInput"
                   type="text" 
                   className="form-input" 
                   placeholder="e.g. Alex Johnson"
@@ -94,11 +102,12 @@ window.AuthPage = function({ mode = 'login', onBackToLanding }) {
             )}
 
             <div className="form-group">
-              <label>Email Address</label>
+              <label htmlFor="emailInput">Email Address</label>
               <input 
+                id="emailInput"
                 type="email" 
                 className="form-input" 
-                placeholder="scholar@university.edu"
+                placeholder="you@university.edu"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
@@ -106,8 +115,9 @@ window.AuthPage = function({ mode = 'login', onBackToLanding }) {
             </div>
 
             <div className="form-group">
-              <label>Password</label>
+              <label htmlFor="passwordInput">Password</label>
               <input 
+                id="passwordInput"
                 type="password" 
                 className="form-input" 
                 placeholder="••••••••"
@@ -129,7 +139,7 @@ window.AuthPage = function({ mode = 'login', onBackToLanding }) {
 
           <div className="divider">OR</div>
 
-          {/* Continue with Google Button */}
+          {/* Continue with Google OAuth Button */}
           <button 
             className="btn btn-google"
             onClick={handleGoogleLogin}
@@ -143,10 +153,6 @@ window.AuthPage = function({ mode = 'login', onBackToLanding }) {
             </svg>
             <span>Continue with Google</span>
           </button>
-
-          <div className="demo-banner">
-            ⚡ <strong>Instant Demo Mode:</strong> Click Sign In or Google above to access the dashboard immediately without setup!
-          </div>
 
           <div className="auth-footer">
             {isSignUp ? (

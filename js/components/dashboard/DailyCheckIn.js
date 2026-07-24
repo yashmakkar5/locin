@@ -1,16 +1,15 @@
 /**
- * Daily Check-In Component
- * Quick, satisfying daily habit check-in with confetti feedback.
+ * Daily Check-In Component (Phase 2 - Real Supabase Database Check-in)
  */
 
 window.DailyCheckIn = function() {
-  const { goals, streak, toggleSubtask, triggerDailyCheckIn } = window.useGoals();
+  const { goals, streak, toggleSubtask, triggerDailyCheckIn, feedbackBanner, errorBanner } = window.useGoals();
 
-  // Gather all subtasks across all goals
+  // Gather subtasks across user's goals
   const todaySubtasks = [];
   goals.forEach(goal => {
-    goal.tasks.forEach(task => {
-      task.subtasks.forEach(subtask => {
+    (goal.tasks || []).forEach(task => {
+      (task.subtasks || []).forEach(subtask => {
         todaySubtasks.push({
           goalId: goal.id,
           goalTitle: goal.title,
@@ -30,7 +29,7 @@ window.DailyCheckIn = function() {
         <div>
           <h1 style={{ fontSize: '1.8rem' }}>Daily Check-in</h1>
           <p style={{ color: 'var(--text-muted)', fontSize: '0.95rem' }}>
-            Check off today's tasks to maintain your 🔥 fire streak momentum!
+            Complete today's check-in to record your progress and grow your 🔥 fire streak!
           </p>
         </div>
 
@@ -42,33 +41,45 @@ window.DailyCheckIn = function() {
             boxShadow: 'var(--shadow-flame)'
           }}
         >
-          <span>Complete Daily Check-in 🔥</span>
+          <span>Submit Today's Check-in 🔥</span>
         </button>
       </div>
+
+      {/* Feedback / Error Messages */}
+      {errorBanner && (
+        <div className="btn-danger" style={{ padding: 12, borderRadius: 8, marginBottom: 20, fontSize: '0.85rem' }}>
+          ⚠️ {errorBanner}
+        </div>
+      )}
+      {feedbackBanner && (
+        <div className="badge badge-success" style={{ padding: '10px 16px', borderRadius: 8, marginBottom: 20, fontSize: '0.9rem', width: '100%', display: 'flex', justifyContent: 'center' }}>
+          {feedbackBanner}
+        </div>
+      )}
 
       {/* Streak Widget Banner */}
       <div className="glass-card" style={{ padding: 24, marginBottom: 32, display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderColor: 'rgba(245, 158, 11, 0.4)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
           <div style={{ fontSize: '2.5rem' }}>🔥</div>
           <div>
-            <div style={{ fontWeight: 700, fontSize: '1.2rem' }}>Current Streak: {streak.current} Days</div>
+            <div style={{ fontWeight: 700, fontSize: '1.2rem' }}>Current Streak: {streak.current_streak || 0} Days</div>
             <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-              {completedCount} of {todaySubtasks.length} subtasks completed today
+              {completedCount} of {todaySubtasks.length} subtasks completed in database
             </div>
           </div>
         </div>
 
         <div className="badge badge-flame" style={{ padding: '8px 16px', fontSize: '0.85rem' }}>
-          Duolingo Momentum Active
+          Longest Record: {streak.longest_streak || 0} Days
         </div>
       </div>
 
       {/* Checklist */}
       <div className="glass-card" style={{ padding: 28 }}>
-        <h3 style={{ fontSize: '1.2rem', marginBottom: 20 }}>Today's Task List</h3>
+        <h3 style={{ fontSize: '1.2rem', marginBottom: 20 }}>Today's Action Checklist</h3>
 
         {todaySubtasks.length === 0 ? (
-          <p style={{ color: 'var(--text-muted)' }}>No subtasks created yet. Add subtasks in Goal Management first.</p>
+          <p style={{ color: 'var(--text-muted)' }}>No subtasks created yet. Add goals and subtasks in Goal Management first.</p>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             {todaySubtasks.map((item, idx) => (
@@ -89,8 +100,10 @@ window.DailyCheckIn = function() {
                 <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
                   <div 
                     className={`custom-checkbox ${item.subtask.completed ? 'checked' : ''}`}
-                    onClick={() => toggleSubtask(item.goalId, item.taskId, item.subtask.id)}
+                    onClick={() => toggleSubtask(item.goalId, item.taskId, item.subtask.id, item.subtask.completed)}
                     style={{ width: 24, height: 24 }}
+                    role="button"
+                    tabIndex={0}
                   >
                     {item.subtask.completed && '✓'}
                   </div>

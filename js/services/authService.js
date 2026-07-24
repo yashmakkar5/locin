@@ -1,103 +1,105 @@
 /**
  * ============================================================================
- * Authentication Service Module
- * Handles Email/Password Authentication, Google OAuth, and Session Management.
- * Includes clear Supabase integration hooks and Demo Mode fallback.
+ * Authentication Service Module (Phase 2 - Real Supabase Auth)
+ * Handles Email/Password Sign Up, Login, Google OAuth, and Session Syncing.
  * ============================================================================
  */
 
 window.authService = {
   /**
-   * Sign In with Email & Password
-   */
-  async signIn(email, password) {
-    if (window.isSupabaseConfigured() && window.supabase) {
-      /* SUPABASE AUTH CONNECTION POINT:
-         Call supabase.auth.signInWithPassword */
-      const { data, error } = await window.supabase.auth.signInWithPassword({
-        email,
-        password
-      });
-      if (error) throw error;
-      return data.user;
-    }
-    
-    // DEMO FALLBACK: Simulate login
-    const demoUser = {
-      id: 'demo-user-123',
-      name: email.split('@')[0] || 'Demo Student',
-      email: email,
-      avatarUrl: null,
-      created_at: new Date().toISOString()
-    };
-    return demoUser;
-  },
-
-  /**
-   * Sign Up with Email, Password & Full Name
+   * Register a new user with Email, Password, and Full Name
    */
   async signUp(email, password, fullName) {
-    if (window.isSupabaseConfigured() && window.supabase) {
-      /* SUPABASE AUTH CONNECTION POINT:
-         Call supabase.auth.signUp with user metadata */
-      const { data, error } = await window.supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          data: { full_name: fullName }
-        }
+    const client = window.getSupabaseClient();
+    
+    // 1. Trigger Supabase Auth Signup
+    const { data: authData, error: authError } = await client.auth.signUp({
+      email,
+      password,
+      options: {
+        data: { full_name: fullName }
+      }
+    });
+
+    if (authError) throw authError;
+    const user = authData.user;
+    if (!user) throw new Error("User creation failed. Please check your email and try again.");
+
+    // 2. Create Profile Record in `profiles` table
+    const { error: profileError } = await client
+      .from('profiles')
+      .upsert({
+        id: user.id,
+        email: email,
+        full_name: fullName || email.split('@')[0],
+        created_at: new Date().toISOString()
       });
-      if (error) throw error;
-      return data.user;
+
+    if (profileError) {
+      console.error("[authService] Profile creation warning:", profileError.message);
     }
 
-    // DEMO FALLBACK: Simulate sign up
-    const demoUser = {
-      id: 'demo-user-' + Date.now(),
-      name: fullName || 'New Scholar',
-      email: email,
-      avatarUrl: null,
-      created_at: new Date().toISOString()
-    };
-    return demoUser;
+    // 3. Initialize Streak Record in `streaks` table
+    const { error: streakError } = await client
+      .from('streaks')
+      .upsert({
+        user_id: user.id,
+        current_streak: 0,
+        longest_streak: 0,
+        last_checkin_date: null
+      });
+
+    if (streakError) {
+      console.error("[authService] Streak init warning:", streakError.message);
+    }
+
+    return user;
   },
 
   /**
-   * Continue with Google OAuth
+   * Log in with Email & Password
+   */
+  async signIn(email, password) {
+    const client = window.getSupabaseClient();
+    const { data, error } = await client.auth.signInWithPassword({
+      email,
+      password
+    });
+    if (error) throw error;
+    return data.user;
+  },
+
+  /**
+   * Trigger Google OAuth Authorization
    */
   async signInWithGoogle() {
-    if (window.isSupabaseConfigured() && window.supabase) {
-      /* SUPABASE AUTH OAUTH CONNECTION POINT:
-         Call supabase.auth.signInWithOAuth for Google */
-      const { data, error } = await window.supabase.auth.signInWithOAuth({
-        provider: 'google',
-        options: {
-          redirectTo: window.location.origin
-        }
-      });
-      if (error) throw error;
-      return data;
-    }
-
-    // DEMO FALLBACK: Simulate Google Auth
-    const demoGoogleUser = {
-      id: 'google-demo-777',
-      name: 'Google Scholar',
-      email: 'scholar.cse@google.com',
-      avatarUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Scholar',
-      created_at: new Date().toISOString()
-    };
-    return demoGoogleUser;
+    const client = window.getSupabaseClient();
+    const { data, error } = await client.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: window.location.origin
+      }
+    });
+    if (error) throw error;
+    return data;
   },
 
   /**
-   * Sign Out current user
+   * Sign Out Current User Session
    */
   async signOut() {
-    if (window.isSupabaseConfigured() && window.supabase) {
-      /* SUPABASE AUTH SIGN OUT: */
-      const { error } = await window.supabase.auth.signOut();
-      if (error) console.error("SignOut error:", error.message);
-    }
+    const client = window.getSupabaseClient();
+    const { error } = await client.auth.signOut();
+    if (error) throw error;
+  },
+
+  /**
+   * Get Active Session
+   */
+  async getSession() {
+    if (!window.isSupabaseConfigured()) return null;
+    const client = window.getSupabaseClient();
+    const { data } = await client.auth.getSession();
+    return data.session;
   }
 };
