@@ -1,0 +1,287 @@
+/* ==========================================================================
+   Locin Goal Tracker – Landing Page Styles
+   ========================================================================== */
+
+/* Navbar Header */
+.landing-header {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 72px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 5%;
+  z-index: 100;
+  background: rgba(9, 13, 22, 0.75);
+  backdrop-filter: var(--glass-backdrop);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.logo-container {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--font-heading);
+  font-size: 1.5rem;
+  font-weight: 800;
+  color: var(--text-main);
+  text-decoration: none;
+}
+
+.logo-icon {
+  width: 34px;
+  height: 34px;
+  background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: var(--shadow-glow);
+}
+
+.nav-links {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+
+.nav-link {
+  color: var(--text-muted);
+  text-decoration: none;
+  font-size: 0.95rem;
+  font-weight: 500;
+  transition: color 0.2s;
+}
+
+.nav-link:hover {
+  color: var(--text-main);
+}
+
+/* Hero Section */
+.hero-section {
+  position: relative;
+  min-height: 90vh;
+  padding: 140px 5% 80px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  background: radial-gradient(circle at 50% 20%, rgba(99, 102, 241, 0.15) 0%, transparent 60%);
+  overflow: hidden;
+}
+
+.hero-pill {
+  margin-bottom: 24px;
+}
+
+.hero-title {
+  font-size: clamp(2.5rem, 5.5vw, 4.5rem);
+  line-height: 1.1;
+  max-width: 900px;
+  margin-bottom: 24px;
+}
+
+.hero-subtitle {
+  font-size: 1.2rem;
+  color: var(--text-muted);
+  max-width: 650px;
+  margin-bottom: 40px;
+}
+
+.hero-cta-group {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  justify-content: center;
+  margin-bottom: 60px;
+}
+
+/* Hero Floating Visual Cards */
+.hero-visual {
+  position: relative;
+  width: 100%;
+  max-width: 950px;
+  display: flex;
+  gap: 20px;
+  justify-content: center;
+  margin-top: 20px;
+}
+
+.floating-card {
+  padding: 20px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  text-align: left;
+  min-width: 260px;
+}
+
+.floating-card-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.5rem;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+/* Features Section */
+.section-container {
+  padding: 100px 5%;
+  max-width: 1280px;
+  margin: 0 auto;
+}
+
+.section-header {
+  text-align: center;
+  max-width: 700px;
+  margin: 0 auto 60px;
+}
+
+.section-title {
+  font-size: 2.25rem;
+  margin-bottom: 16px;
+}
+
+.section-description {
+  color: var(--text-muted);
+  font-size: 1.1rem;
+}
+
+.features-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 24px;
+}
+
+.feature-card {
+  padding: 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.feature-icon-wrapper {
+  width: 56px;
+  height: 56px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.2), rgba(236, 72, 153, 0.2));
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #a5b4fc;
+}
+
+.feature-card h3 {
+  font-size: 1.3rem;
+}
+
+.feature-card p {
+  color: var(--text-muted);
+  font-size: 0.95rem;
+}
+
+/* Motivation Section */
+.quotes-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  gap: 24px;
+}
+
+.quote-card {
+  padding: 32px;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.quote-icon {
+  font-size: 2.5rem;
+  color: rgba(99, 102, 241, 0.3);
+  line-height: 1;
+  margin-bottom: 12px;
+}
+
+.quote-text {
+  font-size: 1.05rem;
+  font-style: italic;
+  color: var(--text-main);
+  margin-bottom: 20px;
+}
+
+.quote-author {
+  font-family: var(--font-heading);
+  font-weight: 700;
+  color: var(--primary);
+  font-size: 0.95rem;
+}
+
+.quote-role {
+  font-size: 0.8rem;
+  color: var(--text-subtle);
+}
+
+/* Compounding Section */
+.compounding-wrapper {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 40px;
+  align-items: center;
+}
+
+@media (max-width: 900px) {
+  .compounding-wrapper {
+    grid-template-columns: 1fr;
+  }
+}
+
+.compounding-card {
+  padding: 36px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.stat-box-group {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.stat-box {
+  padding: 20px;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-color);
+  text-align: center;
+}
+
+.stat-val {
+  font-size: 2rem;
+  font-weight: 800;
+  font-family: var(--font-heading);
+}
+
+/* Final CTA Section */
+.final-cta {
+  padding: 100px 5%;
+  text-align: center;
+  background: radial-gradient(circle at 50% 50%, rgba(236, 72, 153, 0.15) 0%, transparent 70%);
+}
+
+.final-cta-card {
+  max-width: 850px;
+  margin: 0 auto;
+  padding: 60px 40px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 24px;
+}

@@ -1,33 +1,59 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>My First Project</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            margin: 0;
-            padding: 20px;
-            background-color: #f5f5f5;
-        }
-        .container {
-            max-width: 800px;
-            margin: 0 auto;
-            background-color: white;
-            padding: 30px;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-        h1 {
-            color: #333;
-        }
-    </style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Locin – Goal Tracker & Habit Building Platform</title>
+  <meta name="description" content="Small actions. Massive results. Locin helps you set goals, build habits, track streaks, and achieve compound success daily.">
+  
+  <!-- Google Fonts: Outfit & Inter -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  
+  <!-- CSS Stylesheets -->
+  <link rel="stylesheet" href="./css/main.css">
+  <link rel="stylesheet" href="./css/landing.css">
+  <link rel="stylesheet" href="./css/auth.css">
+  <link rel="stylesheet" href="./css/dashboard.css">
+
+  <!-- React 18, ReactDOM, Babel, Lucide Icons, Canvas Confetti -->
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
 </head>
 <body>
-    <div class="container">
-        <h1>Hi! This is my first project page</h1>
-        <p>Welcome to my project!</p>
-    </div>
+  <div id="root"></div>
+
+  <!-- Application Modular Scripts -->
+  <script type="text/babel" src="./js/services/supabaseClient.js"></script>
+  <script type="text/babel" src="./js/services/authService.js"></script>
+  <script type="text/babel" src="./js/services/goalService.js"></script>
+  
+  <script type="text/babel" src="./js/context/AuthContext.js"></script>
+  <script type="text/babel" src="./js/context/GoalContext.js"></script>
+  
+  <script type="text/babel" src="./js/components/common/Header.js"></script>
+  <script type="text/babel" src="./js/components/common/Modal.js"></script>
+  
+  <script type="text/babel" src="./js/components/landing/HeroSection.js"></script>
+  <script type="text/babel" src="./js/components/landing/FeaturesSection.js"></script>
+  <script type="text/babel" src="./js/components/landing/MotivationSection.js"></script>
+  <script type="text/babel" src="./js/components/landing/CompoundingSection.js"></script>
+  <script type="text/babel" src="./js/components/landing/FinalCtaSection.js"></script>
+  
+  <script type="text/babel" src="./js/components/auth/AuthPage.js"></script>
+  
+  <script type="text/babel" src="./js/components/dashboard/Sidebar.js"></script>
+  <script type="text/babel" src="./js/components/dashboard/DashboardHome.js"></script>
+  <script type="text/babel" src="./js/components/dashboard/GoalManager.js"></script>
+  <script type="text/babel" src="./js/components/dashboard/DailyCheckIn.js"></script>
+  <script type="text/babel" src="./js/components/dashboard/CalendarView.js"></script>
+  <script type="text/babel" src="./js/components/dashboard/StatsView.js"></script>
+  <script type="text/babel" src="./js/components/dashboard/ProfileView.js"></script>
+  
+  <script type="text/babel" src="./js/app.js"></script>
 </body>
 </html>
