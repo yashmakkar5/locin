@@ -1,8 +1,7 @@
 /**
  * ============================================================================
- * Authentication Service Module (Production Ready & Robust)
- * Handles Email/Password Sign Up, Sign In, Google OAuth, and Session Syncing.
- * Includes graceful handling for email confirmation requirements and auto-profile setup.
+ * Authentication Service Module (Phase 3 Audit & Debug Logging)
+ * Handles Sign Up, Sign In, Google OAuth, Session Fetching, and Auto-Profile Sync.
  * ============================================================================
  */
 
@@ -11,6 +10,7 @@ window.authService = {
    * Register a new user with Email, Password, and Full Name
    */
   async signUp(email, password, fullName) {
+    console.log("[Auth Debug] Signup attempt initiated for:", email);
     const client = window.getSupabaseClient();
     
     // 1. Trigger Supabase Auth Signup
@@ -22,16 +22,21 @@ window.authService = {
       }
     });
 
-    if (authError) throw authError;
+    if (authError) {
+      console.error("[Auth Debug] ❌ Signup failed:", authError.message);
+      throw authError;
+    }
 
     const user = authData.user;
     const session = authData.session;
 
+    console.log("[Auth Debug] ✅ Auth.signUp response received. User ID:", user?.id, "Session Active:", !!session);
+
     if (!user) {
-      throw new Error("Registration failed. Please check your email and try again.");
+      throw new Error("Registration failed. Please check your details and try again.");
     }
 
-    // 2. If Session is present (Email Confirmation disabled / auto-confirmed)
+    // 2. If Session is Active (Email confirmation disabled or auto-confirmed)
     if (session) {
       try {
         await client.from('profiles').upsert({
@@ -47,18 +52,19 @@ window.authService = {
           longest_streak: 0,
           last_checkin_date: null
         });
+        console.log("[Auth Debug] ✅ Profile & Streak records created.");
       } catch (e) {
-        console.warn("[authService] Inline profile setup notice:", e.message);
+        console.warn("[Auth Debug] Inline profile creation notice:", e.message);
       }
       return { user, session, requireEmailConfirmation: false };
     }
 
-    // 3. If Session is null (Email Confirmation is enabled in Supabase Auth Settings)
+    // 3. If Session is Null (Email confirmation required by Supabase Auth Settings)
     return {
       user,
       session: null,
       requireEmailConfirmation: true,
-      message: "Account created successfully! Please check your email inbox to confirm your account before signing in, or disable 'Confirm Email' in Supabase Auth settings."
+      message: "Account created successfully! Please check your email inbox to confirm your account before logging in, or disable 'Confirm email' in Supabase Auth settings to log in instantly."
     };
   },
 
@@ -66,18 +72,21 @@ window.authService = {
    * Log in with Email & Password
    */
   async signIn(email, password) {
+    console.log("[Auth Debug] Sign in attempt for:", email);
     const client = window.getSupabaseClient();
+    
     const { data, error } = await client.auth.signInWithPassword({
       email,
       password
     });
 
     if (error) {
+      console.error("[Auth Debug] ❌ Sign in error:", error.message);
       if (error.message.includes("Email not confirmed")) {
         throw new Error("Your email address has not been confirmed yet. Please check your email inbox or disable 'Confirm Email' in your Supabase Auth dashboard.");
       }
       if (error.message.includes("Invalid login credentials")) {
-        throw new Error("Invalid email or password. Please check your credentials or create a new account.");
+        throw new Error("Invalid email or password. Please verify your credentials or create a new account.");
       }
       throw error;
     }
@@ -85,7 +94,9 @@ window.authService = {
     const user = data.user;
     const session = data.session;
 
-    // Ensure Profile and Streak records exist in DB upon login
+    console.log("[Auth Debug] ✅ Sign in successful! User ID:", user?.id);
+
+    // Auto-Ensure Profile and Streak records exist in DB
     if (user && session) {
       try {
         await client.from('profiles').upsert({
@@ -100,7 +111,7 @@ window.authService = {
           longest_streak: 0
         }, { onConflict: 'user_id' });
       } catch (e) {
-        console.warn("[authService] Post-login profile sync notice:", e.message);
+        console.warn("[Auth Debug] Post-login profile sync notice:", e.message);
       }
     }
 
@@ -111,6 +122,7 @@ window.authService = {
    * Trigger Google OAuth Authorization
    */
   async signInWithGoogle() {
+    console.log("[Auth Debug] Initiating Google OAuth...");
     const client = window.getSupabaseClient();
     const { data, error } = await client.auth.signInWithOAuth({
       provider: 'google',
@@ -118,7 +130,10 @@ window.authService = {
         redirectTo: window.location.origin
       }
     });
-    if (error) throw error;
+    if (error) {
+      console.error("[Auth Debug] ❌ Google OAuth error:", error.message);
+      throw error;
+    }
     return data;
   },
 
@@ -126,9 +141,14 @@ window.authService = {
    * Sign Out Current User Session
    */
   async signOut() {
+    console.log("[Auth Debug] Initiating Sign Out...");
     const client = window.getSupabaseClient();
     const { error } = await client.auth.signOut();
-    if (error) console.error("[authService] SignOut notice:", error.message);
+    if (error) {
+      console.error("[Auth Debug] SignOut notice:", error.message);
+    } else {
+      console.log("[Auth Debug] ✅ User signed out successfully.");
+    }
   },
 
   /**
@@ -137,7 +157,11 @@ window.authService = {
   async getSession() {
     if (!window.isSupabaseConfigured()) return null;
     const client = window.getSupabaseClient();
-    const { data } = await client.auth.getSession();
+    const { data, error } = await client.auth.getSession();
+    if (error) {
+      console.error("[Auth Debug] getSession error:", error.message);
+      return null;
+    }
     return data.session;
   }
 };

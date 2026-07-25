@@ -1,8 +1,7 @@
 /**
  * ============================================================================
- * Goal Management & Database Service Module (Phase 2 - Real Supabase DB)
- * Handles CRUD for 3-Tier Hierarchy (goals -> tasks -> subtasks),
- * Fire Streak Date Math, Daily Check-ins, Calendar Queries, and Profile Syncing.
+ * Goal Management & Database Service Module (Phase 3 Audit & Debug Logging)
+ * Query Layer for goals, tasks, subtasks, streaks, daily check-ins, and profiles.
  * ============================================================================
  */
 
@@ -11,32 +10,42 @@ window.goalService = {
    * Fetch 3-tier hierarchy: Goals -> Tasks -> Subtasks for authenticated user
    */
   async fetchUserGoals(userId) {
+    console.log("[DB Debug] Fetching goals hierarchy for user:", userId);
     const client = window.getSupabaseClient();
     
-    // Fetch goals
+    // 1. Fetch goals
     const { data: goals, error: goalsError } = await client
       .from('goals')
       .select('*')
       .eq('user_id', userId)
       .order('created_at', { ascending: false });
 
-    if (goalsError) throw goalsError;
-    if (!goals || goals.length === 0) return [];
+    if (goalsError) {
+      console.error("[DB Debug] ❌ Error fetching goals:", goalsError.message);
+      throw goalsError;
+    }
+    if (!goals || goals.length === 0) {
+      console.log("[DB Debug] Zero goals found in DB.");
+      return [];
+    }
 
     const goalIds = goals.map(g => g.id);
 
-    // Fetch tasks for user's goals
+    // 2. Fetch tasks for user's goals
     const { data: tasks, error: tasksError } = await client
       .from('tasks')
       .select('*')
       .in('goal_id', goalIds)
       .order('created_at', { ascending: true });
 
-    if (tasksError) throw tasksError;
+    if (tasksError) {
+      console.error("[DB Debug] ❌ Error fetching tasks:", tasksError.message);
+      throw tasksError;
+    }
 
     const taskIds = (tasks || []).map(t => t.id);
 
-    // Fetch subtasks for user's tasks
+    // 3. Fetch subtasks for user's tasks
     let subtasks = [];
     if (taskIds.length > 0) {
       const { data: subtasksData, error: subtasksError } = await client
@@ -45,7 +54,10 @@ window.goalService = {
         .in('task_id', taskIds)
         .order('created_at', { ascending: true });
 
-      if (subtasksError) throw subtasksError;
+      if (subtasksError) {
+        console.error("[DB Debug] ❌ Error fetching subtasks:", subtasksError.message);
+        throw subtasksError;
+      }
       subtasks = subtasksData || [];
     }
 
@@ -69,6 +81,7 @@ window.goalService = {
       };
     });
 
+    console.log("[DB Debug] ✅ Goals hierarchy loaded successfully. Total goals:", structuredGoals.length);
     return structuredGoals;
   },
 
@@ -76,6 +89,7 @@ window.goalService = {
    * Create a new Goal (Level 1)
    */
   async createGoal(userId, title, category = 'General', color = '#6366f1') {
+    console.log("[DB Debug] Creating goal:", title);
     const client = window.getSupabaseClient();
     const { data, error } = await client
       .from('goals')
@@ -88,27 +102,37 @@ window.goalService = {
       .select()
       .single();
 
-    if (error) throw error;
+    if (error) {
+      console.error("[DB Debug] ❌ Create goal error:", error.message);
+      throw error;
+    }
+    console.log("[DB Debug] ✅ Goal created with ID:", data.id);
     return { ...data, tasks: [] };
   },
 
   /**
-   * Delete a Goal (Cascade deletes nested tasks & subtasks via foreign key)
+   * Delete a Goal
    */
   async deleteGoal(goalId) {
+    console.log("[DB Debug] Deleting goal ID:", goalId);
     const client = window.getSupabaseClient();
     const { error } = await client
       .from('goals')
       .delete()
       .eq('id', goalId);
 
-    if (error) throw error;
+    if (error) {
+      console.error("[DB Debug] ❌ Delete goal error:", error.message);
+      throw error;
+    }
+    console.log("[DB Debug] ✅ Goal deleted.");
   },
 
   /**
    * Create a new Task (Level 2)
    */
   async createTask(userId, goalId, title) {
+    console.log("[DB Debug] Creating task under goal:", goalId, title);
     const client = window.getSupabaseClient();
     const { data, error } = await client
       .from('tasks')
@@ -121,7 +145,11 @@ window.goalService = {
       .select()
       .single();
 
-    if (error) throw error;
+    if (error) {
+      console.error("[DB Debug] ❌ Create task error:", error.message);
+      throw error;
+    }
+    console.log("[DB Debug] ✅ Task created with ID:", data.id);
     return { ...data, subtasks: [] };
   },
 
@@ -129,19 +157,24 @@ window.goalService = {
    * Delete a Task
    */
   async deleteTask(taskId) {
+    console.log("[DB Debug] Deleting task ID:", taskId);
     const client = window.getSupabaseClient();
     const { error } = await client
       .from('tasks')
       .delete()
       .eq('id', taskId);
 
-    if (error) throw error;
+    if (error) {
+      console.error("[DB Debug] ❌ Delete task error:", error.message);
+      throw error;
+    }
   },
 
   /**
    * Create a new Subtask (Level 3)
    */
   async createSubtask(userId, taskId, title) {
+    console.log("[DB Debug] Creating subtask under task:", taskId, title);
     const client = window.getSupabaseClient();
     const { data, error } = await client
       .from('subtasks')
@@ -154,7 +187,11 @@ window.goalService = {
       .select()
       .single();
 
-    if (error) throw error;
+    if (error) {
+      console.error("[DB Debug] ❌ Create subtask error:", error.message);
+      throw error;
+    }
+    console.log("[DB Debug] ✅ Subtask created with ID:", data.id);
     return data;
   },
 
@@ -162,6 +199,7 @@ window.goalService = {
    * Toggle Subtask Completion Status
    */
   async toggleSubtask(subtaskId, completed) {
+    console.log("[DB Debug] Toggling subtask:", subtaskId, "->", completed);
     const client = window.getSupabaseClient();
     const { data, error } = await client
       .from('subtasks')
@@ -170,7 +208,10 @@ window.goalService = {
       .select()
       .single();
 
-    if (error) throw error;
+    if (error) {
+      console.error("[DB Debug] ❌ Toggle subtask error:", error.message);
+      throw error;
+    }
     return data;
   },
 
@@ -178,19 +219,24 @@ window.goalService = {
    * Delete a Subtask
    */
   async deleteSubtask(subtaskId) {
+    console.log("[DB Debug] Deleting subtask ID:", subtaskId);
     const client = window.getSupabaseClient();
     const { error } = await client
       .from('subtasks')
       .delete()
       .eq('id', subtaskId);
 
-    if (error) throw error;
+    if (error) {
+      console.error("[DB Debug] ❌ Delete subtask error:", error.message);
+      throw error;
+    }
   },
 
   /**
    * Fetch User Streak Record from `streaks` table
    */
   async fetchStreak(userId) {
+    console.log("[DB Debug] Fetching streak for user:", userId);
     const client = window.getSupabaseClient();
     const { data, error } = await client
       .from('streaks')
@@ -198,10 +244,10 @@ window.goalService = {
       .eq('user_id', userId)
       .maybeSingle();
 
-    if (error) console.error("[goalService] fetchStreak error:", error.message);
+    if (error) console.error("[DB Debug] fetchStreak error:", error.message);
     
     if (!data) {
-      // Create record if missing
+      console.log("[DB Debug] Streak row missing. Creating new record...");
       const { data: newStreak } = await client
         .from('streaks')
         .insert({ user_id: userId, current_streak: 0, longest_streak: 0, last_checkin_date: null })
@@ -214,13 +260,13 @@ window.goalService = {
 
   /**
    * Record Daily Check-in & Calculate Fire Streak
-   * Strictly enforces 1 check-in per calendar day using exact date comparison (YYYY-MM-DD).
    */
   async recordDailyCheckIn(userId, completedSubtasksCount = 0) {
+    console.log("[DB Debug] Executing daily check-in for user:", userId);
     const client = window.getSupabaseClient();
     const todayStr = new Date().toISOString().split('T')[0];
 
-    // 1. Check if user has ALREADY checked in today in `daily_checkins`
+    // 1. Check if user ALREADY checked in today
     const { data: existingCheckIn } = await client
       .from('daily_checkins')
       .select('*')
@@ -231,6 +277,7 @@ window.goalService = {
     const streakRecord = await this.fetchStreak(userId);
 
     if (existingCheckIn) {
+      console.log("[DB Debug] User already checked in today.");
       return { 
         alreadyCheckedIn: true, 
         message: "You have already completed today's check-in! 🔥", 
@@ -249,22 +296,19 @@ window.goalService = {
       const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
       if (diffDays === 1) {
-        // Consecutive Day Check-in! Increment Streak
         newCurrentStreak = (streakRecord.current_streak || 0) + 1;
       } else if (diffDays === 0) {
         newCurrentStreak = streakRecord.current_streak || 1;
       } else {
-        // Missed one or more days -> Streak Resets to 1
-        newCurrentStreak = 1;
+        newCurrentStreak = 1; // Streak resets
       }
     } else {
-      // First check-in ever
       newCurrentStreak = 1;
     }
 
     const newLongestStreak = Math.max(newCurrentStreak, streakRecord.longest_streak || 0);
 
-    // 3. Record Check-in in `daily_checkins` table
+    // 3. Record Check-in
     const { error: checkInError } = await client
       .from('daily_checkins')
       .insert({
@@ -273,9 +317,12 @@ window.goalService = {
         subtasks_completed_count: completedSubtasksCount
       });
 
-    if (checkInError) throw checkInError;
+    if (checkInError) {
+      console.error("[DB Debug] ❌ Check-in insert error:", checkInError.message);
+      throw checkInError;
+    }
 
-    // 4. Update `streaks` table
+    // 4. Update Streak record
     const { data: updatedStreak, error: streakUpdateError } = await client
       .from('streaks')
       .upsert({
@@ -288,8 +335,12 @@ window.goalService = {
       .select()
       .single();
 
-    if (streakUpdateError) throw streakUpdateError;
+    if (streakUpdateError) {
+      console.error("[DB Debug] ❌ Streak update error:", streakUpdateError.message);
+      throw streakUpdateError;
+    }
 
+    console.log("[DB Debug] ✅ Daily check-in recorded! New Streak:", newCurrentStreak);
     return { 
       alreadyCheckedIn: false, 
       message: "Daily Check-in Recorded! 🔥", 
@@ -298,12 +349,12 @@ window.goalService = {
   },
 
   /**
-   * Fetch Check-in dates for Calendar view for a specific month
+   * Fetch Check-ins for Calendar View
    */
   async fetchCalendarCheckIns(userId, year, month) {
+    console.log("[DB Debug] Fetching calendar check-ins for:", year, month + 1);
     const client = window.getSupabaseClient();
     
-    // Start & End of target month
     const startDate = `${year}-${String(month + 1).padStart(2, '0')}-01`;
     const lastDayNum = new Date(year, month + 1, 0).getDate();
     const endDate = `${year}-${String(month + 1).padStart(2, '0')}-${String(lastDayNum).padStart(2, '0')}`;
@@ -315,20 +366,25 @@ window.goalService = {
       .gte('checkin_date', startDate)
       .lte('checkin_date', endDate);
 
-    if (error) throw error;
+    if (error) {
+      console.error("[DB Debug] ❌ Calendar query error:", error.message);
+      throw error;
+    }
 
     const checkInMap = {};
     (data || []).forEach(row => {
       checkInMap[row.checkin_date] = true;
     });
 
+    console.log("[DB Debug] ✅ Calendar check-ins loaded:", Object.keys(checkInMap).length, "days checked in.");
     return checkInMap;
   },
 
   /**
-   * Update Profile Name in `profiles` table
+   * Update Profile Name
    */
   async updateProfile(userId, fullName) {
+    console.log("[DB Debug] Updating profile full_name for:", userId);
     const client = window.getSupabaseClient();
     const { data, error } = await client
       .from('profiles')
@@ -337,7 +393,11 @@ window.goalService = {
       .select()
       .single();
 
-    if (error) throw error;
+    if (error) {
+      console.error("[DB Debug] ❌ Profile update error:", error.message);
+      throw error;
+    }
+    console.log("[DB Debug] ✅ Profile updated.");
     return data;
   },
 
@@ -352,7 +412,7 @@ window.goalService = {
       .eq('id', userId)
       .maybeSingle();
 
-    if (error) console.error("[goalService] fetchUserProfile error:", error.message);
+    if (error) console.error("[DB Debug] fetchUserProfile error:", error.message);
     return data;
   }
 };
