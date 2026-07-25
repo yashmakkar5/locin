@@ -27,8 +27,14 @@
 <body>
   <div id="root"></div>
 
-  <!-- Local Storage Persistence Engine -->
-  <script src="./js/services/storageService.js"></script>
+  <!-- Modular Storage Architecture (Decoupled Storage Layer) -->
+  <script src="./js/storage/storageManager.js"></script>
+  <script src="./js/storage/goalStorage.js"></script>
+  <script src="./js/storage/taskStorage.js"></script>
+  <script src="./js/storage/subtaskStorage.js"></script>
+  <script src="./js/storage/streakStorage.js"></script>
+  <script src="./js/storage/calendarStorage.js"></script>
+  <script src="./js/storage/settingsStorage.js"></script>
 
   <!-- React Application Scripts -->
   <script type="text/babel">
@@ -38,7 +44,7 @@
     const AuthContext = createContext();
 
     window.AuthProvider = function({ children }) {
-      const [authView, setAuthView] = useState('landing'); // 'landing' | 'dashboard'
+      const [authView, setAuthView] = useState('landing');
 
       return (
         <AuthContext.Provider value={{ authView, setAuthView }}>
@@ -55,196 +61,142 @@
     const GoalContext = createContext();
 
     window.GoalProvider = function({ children }) {
-      const [appData, setAppData] = useState(() => window.storageService.loadData());
+      const [goals, setGoals] = useState([]);
+      const [streak, setStreak] = useState({ current_streak: 0, longest_streak: 0, last_checkin_date: null });
+      const [calendarHistory, setCalendarHistory] = useState({});
+      const [profile, setProfile] = useState({ name: 'Scholar Student' });
+      const [settings, setSettings] = useState({ onboardingCompleted: false });
       const [feedbackBanner, setFeedbackBanner] = useState(null);
       const [errorBanner, setErrorBanner] = useState(null);
 
-      // Save helper
-      const updateData = (updater) => {
-        setAppData(prev => {
-          const nextData = typeof updater === 'function' ? updater(prev) : { ...prev, ...updater };
-          window.storageService.saveData(nextData);
-          return nextData;
-        });
-      };
+      // Re-read storage and sync state immediately
+      const syncWithStorage = useCallback(() => {
+        setGoals(window.goalStorage.getGoals());
+        setStreak(window.streakStorage.getStreak());
+        setCalendarHistory(window.calendarStorage.getCalendarHistory());
+        setProfile(window.settingsStorage.getProfile());
+        const store = window.storageManager.getStore();
+        setSettings(store.settings || {});
+      }, []);
 
-      // 3-Tier Hierarchy CRUD
-      const addGoal = (title, category = 'General', color = '#6366f1') => {
-        const newGoal = {
-          id: 'g-' + Date.now(),
-          title,
-          category,
-          color,
-          created_at: new Date().toISOString(),
-          tasks: []
-        };
-        updateData(prev => ({ ...prev, goals: [newGoal, ...prev.goals] }));
+      useEffect(() => {
+        syncWithStorage();
+      }, [syncWithStorage]);
+
+      // Goal CRUD
+      const addGoal = (title, category, color) => {
+        setErrorBanner(null);
+        window.goalStorage.addGoal(title, category, color);
+        syncWithStorage();
         setFeedbackBanner("🎯 Goal created successfully!");
         setTimeout(() => setFeedbackBanner(null), 3000);
       };
 
       const deleteGoal = (goalId) => {
-        updateData(prev => ({ ...prev, goals: prev.goals.filter(g => g.id !== goalId) }));
+        setErrorBanner(null);
+        window.goalStorage.deleteGoal(goalId);
+        syncWithStorage();
         setFeedbackBanner("Goal deleted.");
         setTimeout(() => setFeedbackBanner(null), 3000);
       };
 
-      const addTask = (goalId, taskTitle) => {
-        const newTask = {
-          id: 't-' + Date.now(),
-          title: taskTitle,
-          completed: false,
-          subtasks: []
-        };
-        updateData(prev => ({
-          ...prev,
-          goals: prev.goals.map(g => (g.id === goalId ? { ...g, tasks: [...g.tasks, newTask] } : g))
-        }));
+      // Task CRUD
+      const addTask = (goalId, title) => {
+        setErrorBanner(null);
+        window.taskStorage.addTask(goalId, title);
+        syncWithStorage();
         setFeedbackBanner("📌 Task added.");
         setTimeout(() => setFeedbackBanner(null), 3000);
       };
 
       const deleteTask = (goalId, taskId) => {
-        updateData(prev => ({
-          ...prev,
-          goals: prev.goals.map(g => (g.id === goalId ? { ...g, tasks: g.tasks.filter(t => t.id !== taskId) } : g))
-        }));
+        setErrorBanner(null);
+        window.taskStorage.deleteTask(goalId, taskId);
+        syncWithStorage();
       };
 
-      const addSubtask = (goalId, taskId, subtaskTitle) => {
-        const newSubtask = {
-          id: 'st-' + Date.now(),
-          title: subtaskTitle,
-          completed: false
-        };
-        updateData(prev => ({
-          ...prev,
-          goals: prev.goals.map(g => {
-            if (g.id === goalId) {
-              return {
-                ...g,
-                tasks: g.tasks.map(t => (t.id === taskId ? { ...t, subtasks: [...t.subtasks, newSubtask] } : t))
-              };
-            }
-            return g;
-          })
-        }));
+      // Subtask CRUD
+      const addSubtask = (goalId, taskId, title) => {
+        setErrorBanner(null);
+        window.subtaskStorage.addSubtask(goalId, taskId, title);
+        syncWithStorage();
       };
 
       const toggleSubtask = (goalId, taskId, subtaskId) => {
-        updateData(prev => ({
-          ...prev,
-          goals: prev.goals.map(g => {
-            if (g.id === goalId) {
-              return {
-                ...g,
-                tasks: g.tasks.map(t => {
-                  if (t.id === taskId) {
-                    const newSubtasks = t.subtasks.map(st => (st.id === subtaskId ? { ...st, completed: !st.completed } : st));
-                    const allDone = newSubtasks.length > 0 && newSubtasks.every(st => st.completed);
-                    return { ...t, completed: allDone, subtasks: newSubtasks };
-                  }
-                  return t;
-                })
-              };
-            }
-            return g;
-          })
-        }));
+        setErrorBanner(null);
+        window.subtaskStorage.toggleSubtask(goalId, taskId, subtaskId);
+        syncWithStorage();
       };
 
       const deleteSubtask = (goalId, taskId, subtaskId) => {
-        updateData(prev => ({
-          ...prev,
-          goals: prev.goals.map(g => {
-            if (g.id === goalId) {
-              return {
-                ...g,
-                tasks: g.tasks.map(t => (t.id === taskId ? { ...t, subtasks: t.subtasks.filter(st => st.id !== subtaskId) } : t))
-              };
-            }
-            return g;
-          })
-        }));
+        setErrorBanner(null);
+        window.subtaskStorage.deleteSubtask(goalId, taskId, subtaskId);
+        syncWithStorage();
       };
 
-      // Daily Check-in & Fire Streak Date Math
+      // Daily Check-in with strict task completion validation
       const triggerDailyCheckIn = () => {
-        const todayStr = new Date().toISOString().split('T')[0];
-        const lastDateStr = appData.streak.last_checkin_date;
+        setErrorBanner(null);
+        const res = window.streakStorage.processCheckIn();
 
-        if (lastDateStr === todayStr) {
-          setFeedbackBanner("⚡ You have already completed today's check-in! 🔥");
+        if (!res.success && res.error) {
+          setErrorBanner("⚠️ " + res.error);
+          setTimeout(() => setErrorBanner(null), 4000);
+          return;
+        }
+
+        if (!res.success && res.info) {
+          setFeedbackBanner("⚡ " + res.info);
           setTimeout(() => setFeedbackBanner(null), 3500);
           return;
         }
 
-        let newCurrent = 1;
-        if (lastDateStr) {
-          const todayDate = new Date(todayStr);
-          const lastDate = new Date(lastDateStr);
-          const diffDays = Math.ceil(Math.abs(todayDate - lastDate) / (1000 * 60 * 60 * 24));
-
-          if (diffDays === 1) {
-            newCurrent = (appData.streak.current_streak || 0) + 1;
-          } else {
-            newCurrent = 1; // Missed day resets streak
+        if (res.success) {
+          if (window.confetti) {
+            window.confetti({ particleCount: 120, spread: 80, origin: { y: 0.6 } });
           }
+          syncWithStorage();
+          setFeedbackBanner("🔥 " + res.message);
+          setTimeout(() => setFeedbackBanner(null), 3500);
         }
-
-        const newLongest = Math.max(newCurrent, appData.streak.longest_streak || 0);
-
-        if (window.confetti) {
-          window.confetti({ particleCount: 120, spread: 80, origin: { y: 0.6 } });
-        }
-
-        updateData(prev => ({
-          ...prev,
-          streak: {
-            current_streak: newCurrent,
-            longest_streak: newLongest,
-            last_checkin_date: todayStr
-          },
-          calendarHistory: {
-            ...prev.calendarHistory,
-            [todayStr]: true
-          }
-        }));
-
-        setFeedbackBanner("🔥 Daily Check-in Recorded! Streak: " + newCurrent + " Days!");
-        setTimeout(() => setFeedbackBanner(null), 3500);
       };
 
-      // Profile & Settings
+      // Settings & Profile
       const updateUserProfile = (name) => {
-        updateData(prev => ({
-          ...prev,
-          profile: { ...prev.profile, name }
-        }));
+        window.settingsStorage.updateProfile(name);
+        syncWithStorage();
         setFeedbackBanner("Profile name updated!");
         setTimeout(() => setFeedbackBanner(null), 3000);
       };
 
       const completeOnboarding = () => {
-        updateData(prev => ({
-          ...prev,
-          settings: { ...prev.settings, onboardingCompleted: true }
-        }));
+        const store = window.storageManager.getStore();
+        store.settings.onboardingCompleted = true;
+        window.storageManager.saveStore(store);
+        syncWithStorage();
+      };
+
+      // Intentional Load Demo Data Button
+      const handleLoadDemoData = () => {
+        window.settingsStorage.loadDemoData();
+        syncWithStorage();
+        setFeedbackBanner("✨ Demo goals loaded into storage!");
+        setTimeout(() => setFeedbackBanner(null), 3500);
       };
 
       // Backup & Restore
       const exportBackupData = () => {
-        window.storageService.exportBackup();
+        window.settingsStorage.exportBackup();
         setFeedbackBanner("📥 JSON Backup downloaded successfully!");
         setTimeout(() => setFeedbackBanner(null), 3500);
       };
 
       const importBackupData = (fileContent) => {
         setErrorBanner(null);
-        const res = window.storageService.importBackup(fileContent);
+        const res = window.settingsStorage.importBackup(fileContent);
         if (res.success) {
-          setAppData(res.data);
-          setFeedbackBanner("✅ Backup imported successfully! All data restored.");
+          syncWithStorage();
+          setFeedbackBanner("✅ Backup imported successfully!");
           setTimeout(() => setFeedbackBanner(null), 3500);
           return true;
         } else {
@@ -254,22 +206,21 @@
       };
 
       const resetAllData = () => {
-        const cleanData = window.storageService.resetData();
-        setAppData(cleanData);
-        setFeedbackBanner("🗑️ All local data has been reset to default.");
+        window.storageManager.clearStore();
+        syncWithStorage();
+        setFeedbackBanner("🗑️ All local data has been reset.");
         setTimeout(() => setFeedbackBanner(null), 3500);
       };
 
-      // Aggregate Stats Calculation
+      // Stats Calculation
       const getStats = () => {
-        const goalsList = appData.goals || [];
-        let totalGoals = goalsList.length;
+        let totalGoals = goals.length;
         let totalTasks = 0;
         let completedTasks = 0;
         let totalSubtasks = 0;
         let completedSubtasks = 0;
 
-        goalsList.forEach(g => {
+        goals.forEach(g => {
           (g.tasks || []).forEach(t => {
             totalTasks++;
             if (t.completed) completedTasks++;
@@ -289,18 +240,18 @@
           totalSubtasks,
           completedSubtasks,
           completionPercentage,
-          currentStreak: appData.streak.current_streak || 0,
-          longestStreak: appData.streak.longest_streak || 0
+          currentStreak: streak.current_streak || 0,
+          longestStreak: streak.longest_streak || 0
         };
       };
 
       return (
         <GoalContext.Provider value={{
-          goals: appData.goals || [],
-          streak: appData.streak || { current_streak: 0, longest_streak: 0 },
-          calendarHistory: appData.calendarHistory || {},
-          profile: appData.profile || { name: 'Scholar Student' },
-          settings: appData.settings || {},
+          goals,
+          streak,
+          calendarHistory,
+          profile,
+          settings,
           feedbackBanner,
           errorBanner,
           addGoal,
@@ -313,6 +264,7 @@
           triggerDailyCheckIn,
           updateUserProfile,
           completeOnboarding,
+          handleLoadDemoData,
           exportBackupData,
           importBackupData,
           resetAllData,
@@ -592,7 +544,7 @@
 
     // --- 6. Dashboard Views ---
     window.DashboardHome = function({ setActiveTab }) {
-      const { streak, profile, getStats, triggerDailyCheckIn, feedbackBanner } = window.useGoals();
+      const { streak, profile, getStats, triggerDailyCheckIn, feedbackBanner, errorBanner } = window.useGoals();
       const stats = getStats();
       const displayName = profile.name || 'Scholar Student';
 
@@ -612,6 +564,7 @@
             </div>
           </div>
 
+          {errorBanner && <div className="btn-danger" style={{ padding: 12, borderRadius: 8, marginBottom: 20, fontSize: '0.85rem' }}>{errorBanner}</div>}
           {feedbackBanner && <div className="badge badge-success" style={{ padding: '10px 16px', borderRadius: 10, marginBottom: 20, fontSize: '0.9rem', width: '100%', display: 'flex', justifyContent: 'center' }}>{feedbackBanner}</div>}
 
           <div className="streak-widget">
@@ -716,8 +669,12 @@
           </div>
 
           {goals.length === 0 ? (
-            <div className="glass-card" style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>
-              <p style={{ fontSize: '1.1rem', marginBottom: 12 }}>No goals created yet in local storage.</p>
+            <div className="glass-card" style={{ padding: 50, textAlign: 'center', color: 'var(--text-muted)' }}>
+              <div style={{ fontSize: '3rem', marginBottom: 12 }}>🎯</div>
+              <h3 style={{ fontSize: '1.3rem', color: 'var(--text-main)', marginBottom: 8 }}>No goals created yet</h3>
+              <p style={{ fontSize: '0.95rem', marginBottom: 20, maxWidth: 450, margin: '0 auto 20px' }}>
+                You have zero active goals in storage. Click <strong>"Create New Goal"</strong> to start tracking your first ambition!
+              </p>
               <button className="btn btn-primary btn-sm" onClick={() => setIsGoalModalOpen(true)}>+ Create Your First Goal</button>
             </div>
           ) : (
@@ -803,7 +760,7 @@
             <form onSubmit={handleCreateTask}>
               <div className="form-group">
                 <label>Task Title</label>
-                <input type="text" className="form-input" placeholder="e.g. Implement Backup Engine" value={taskTitle} onChange={(e) => setTaskTitle(e.target.value)} required />
+                <input type="text" className="form-input" placeholder="e.g. Implement Modular Storage Architecture" value={taskTitle} onChange={(e) => setTaskTitle(e.target.value)} required />
               </div>
               <button type="submit" className="btn btn-primary" style={{ width: '100%', marginTop: 12 }}>Save Task</button>
             </form>
@@ -813,7 +770,7 @@
             <form onSubmit={handleCreateSubtask}>
               <div className="form-group">
                 <label>Subtask Title</label>
-                <input type="text" className="form-input" placeholder="e.g. JSON Exporter" value={subtaskTitle} onChange={(e) => setSubtaskTitle(e.target.value)} required />
+                <input type="text" className="form-input" placeholder="e.g. crypto.randomUUID integration" value={subtaskTitle} onChange={(e) => setSubtaskTitle(e.target.value)} required />
               </div>
               <button type="submit" className="btn btn-primary" style={{ width: '100%', marginTop: 12 }}>Save Subtask</button>
             </form>
@@ -823,7 +780,7 @@
     };
 
     window.DailyCheckIn = function() {
-      const { goals, streak, toggleSubtask, triggerDailyCheckIn, feedbackBanner } = window.useGoals();
+      const { goals, streak, toggleSubtask, triggerDailyCheckIn, feedbackBanner, errorBanner } = window.useGoals();
       const todaySubtasks = [];
       goals.forEach(goal => {
         (goal.tasks || []).forEach(task => {
@@ -839,13 +796,14 @@
           <div className="top-bar">
             <div>
               <h1 style={{ fontSize: '1.8rem' }}>Daily Check-in</h1>
-              <p style={{ color: 'var(--text-muted)', fontSize: '0.95rem' }}>Complete today's check-in to record progress and grow your 🔥 streak!</p>
+              <p style={{ color: 'var(--text-muted)', fontSize: '0.95rem' }}>Complete today's tasks before submitting your check-in!</p>
             </div>
             <button className="btn btn-primary" onClick={triggerDailyCheckIn} style={{ background: 'linear-gradient(135deg, #f59e0b 0%, #ef4444 100%)', boxShadow: 'var(--shadow-flame)' }}>
               <span>Submit Today's Check-in 🔥</span>
             </button>
           </div>
 
+          {errorBanner && <div className="btn-danger" style={{ padding: 12, borderRadius: 8, marginBottom: 20, fontSize: '0.85rem' }}>{errorBanner}</div>}
           {feedbackBanner && <div className="badge badge-success" style={{ padding: '10px 16px', borderRadius: 8, marginBottom: 20, fontSize: '0.9rem', width: '100%', display: 'flex', justifyContent: 'center' }}>{feedbackBanner}</div>}
 
           <div className="glass-card" style={{ padding: 24, marginBottom: 32, display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderColor: 'rgba(245, 158, 11, 0.4)' }}>
@@ -1080,7 +1038,7 @@
 
     // --- 7. Settings, Backup & Restore View ---
     window.SettingsView = function() {
-      const { exportBackupData, importBackupData, resetAllData, feedbackBanner, errorBanner } = window.useGoals();
+      const { handleLoadDemoData, exportBackupData, importBackupData, resetAllData, feedbackBanner, errorBanner } = window.useGoals();
       const [showResetConfirm, setShowResetConfirm] = useState(false);
 
       const handleFileUpload = (e) => {
@@ -1103,21 +1061,29 @@
             </div>
           </div>
 
-          {errorBanner && <div className="btn-danger" style={{ padding: 12, borderRadius: 8, marginBottom: 20, fontSize: '0.85rem' }}>⚠️ {errorBanner}</div>}
+          {errorBanner && <div className="btn-danger" style={{ padding: 12, borderRadius: 8, marginBottom: 20, fontSize: '0.85rem' }}>{errorBanner}</div>}
           {feedbackBanner && <div className="badge badge-success" style={{ padding: '10px 16px', borderRadius: 8, marginBottom: 20, fontSize: '0.9rem', width: '100%', display: 'flex', justifyContent: 'center' }}>{feedbackBanner}</div>}
 
-          {/* Section 1: Backup & Restore */}
+          {/* Section 1: Data Management & Load Demo Data */}
           <div className="glass-card" style={{ padding: 32, marginBottom: 28 }}>
-            <h2 style={{ fontSize: '1.4rem', marginBottom: 12 }}>📥 Backup & Restore</h2>
+            <h2 style={{ fontSize: '1.4rem', marginBottom: 12 }}>📥 Backup & Data Controls</h2>
             <p style={{ color: 'var(--text-muted)', fontSize: '0.95rem', marginBottom: 24 }}>
-              Your data is saved automatically to your device's browser storage. Export a JSON backup file anytime to transfer data between devices or keep offline backups.
+              Your data is saved automatically to your browser storage. Export a JSON backup file anytime or load demo goals intentionally for testing.
             </p>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 20 }}>
+              <div style={{ background: 'rgba(99, 102, 241, 0.05)', padding: 24, borderRadius: 'var(--radius-sm)', border: '1px solid rgba(99, 102, 241, 0.2)' }}>
+                <h3 style={{ fontSize: '1.1rem', marginBottom: 8, color: '#a5b4fc' }}>Load Demo Data</h3>
+                <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: 16 }}>Populate sample goals (Learn AI, Peak Fitness) for testing.</p>
+                <button className="btn btn-primary btn-sm" onClick={handleLoadDemoData}>
+                  ✨ Load Demo Data
+                </button>
+              </div>
+
               <div style={{ background: 'rgba(255, 255, 255, 0.03)', padding: 24, borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)' }}>
                 <h3 style={{ fontSize: '1.1rem', marginBottom: 8 }}>Export JSON Backup</h3>
-                <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: 16 }}>Download complete copy of your goals, tasks, streaks, and calendar history.</p>
-                <button className="btn btn-primary btn-sm" onClick={exportBackupData}>
+                <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: 16 }}>Download complete copy of goals, tasks, streaks, and calendar history.</p>
+                <button className="btn btn-secondary btn-sm" onClick={exportBackupData}>
                   📥 Download Backup JSON
                 </button>
               </div>
@@ -1127,13 +1093,13 @@
                 <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: 16 }}>Restore your data from a previously exported `.json` file.</p>
                 <input type="file" accept=".json" onChange={handleFileUpload} style={{ display: 'none' }} id="jsonFileInput" />
                 <label htmlFor="jsonFileInput" className="btn btn-secondary btn-sm" style={{ cursor: 'pointer', display: 'inline-flex' }}>
-                  📤 Select JSON File to Restore
+                  📤 Select JSON File
                 </label>
               </div>
 
               <div style={{ background: 'rgba(239, 68, 68, 0.05)', padding: 24, borderRadius: 'var(--radius-sm)', border: '1px solid rgba(239, 68, 68, 0.2)' }}>
                 <h3 style={{ fontSize: '1.1rem', marginBottom: 8, color: '#fca5a5' }}>Reset All Local Data</h3>
-                <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: 16 }}>Permanently erase locally stored data and reset the app to first launch state.</p>
+                <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: 16 }}>Permanently erase locally stored data and reset to empty first launch state.</p>
                 <button className="btn btn-danger btn-sm" onClick={() => setShowResetConfirm(true)}>
                   🗑️ Reset All Data
                 </button>
