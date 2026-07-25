@@ -28,34 +28,1394 @@
 <body>
   <div id="root"></div>
 
-  <!-- Application Modular Scripts -->
-  <script type="text/babel" src="./js/services/supabaseClient.js"></script>
-  <script type="text/babel" src="./js/services/authService.js"></script>
-  <script type="text/babel" src="./js/services/goalService.js"></script>
-  
-  <script type="text/babel" src="./js/context/AuthContext.js"></script>
-  <script type="text/babel" src="./js/context/GoalContext.js"></script>
-  
-  <script type="text/babel" src="./js/components/common/Header.js"></script>
-  <script type="text/babel" src="./js/components/common/Modal.js"></script>
-  <script type="text/babel" src="./js/components/common/LoadingSpinner.js"></script>
-  
-  <script type="text/babel" src="./js/components/landing/HeroSection.js"></script>
-  <script type="text/babel" src="./js/components/landing/FeaturesSection.js"></script>
-  <script type="text/babel" src="./js/components/landing/MotivationSection.js"></script>
-  <script type="text/babel" src="./js/components/landing/CompoundingSection.js"></script>
-  <script type="text/babel" src="./js/components/landing/FinalCtaSection.js"></script>
-  
-  <script type="text/babel" src="./js/components/auth/AuthPage.js"></script>
-  
-  <script type="text/babel" src="./js/components/dashboard/Sidebar.js"></script>
-  <script type="text/babel" src="./js/components/dashboard/DashboardHome.js"></script>
-  <script type="text/babel" src="./js/components/dashboard/GoalManager.js"></script>
-  <script type="text/babel" src="./js/components/dashboard/DailyCheckIn.js"></script>
-  <script type="text/babel" src="./js/components/dashboard/CalendarView.js"></script>
-  <script type="text/babel" src="./js/components/dashboard/StatsView.js"></script>
-  <script type="text/babel" src="./js/components/dashboard/ProfileView.js"></script>
-  
-  <script type="text/babel" src="./js/app.js"></script>
+  <!-- Plain JS Services -->
+  <script src="./js/services/supabaseClient.js"></script>
+  <script src="./js/services/authService.js"></script>
+  <script src="./js/services/goalService.js"></script>
+
+  <!-- React Context & Components (Inline Babel to bypass file:// CORS restrictions) -->
+  <script type="text/babel">
+    const { useState, useEffect, useContext, createContext, useCallback } = React;
+
+    // --- 1. AuthContext ---
+    const AuthContext = createContext();
+
+    window.AuthProvider = function({ children }) {
+      const [user, setUser] = useState(null);
+      const [session, setSession] = useState(null);
+      const [loading, setLoading] = useState(true);
+      const [authView, setAuthView] = useState('landing');
+
+      useEffect(() => {
+        let mounted = true;
+        console.log("[Auth Context Debug] Initializing Auth Provider...");
+
+        const safetyTimer = setTimeout(() => {
+          if (mounted && loading) {
+            console.warn("[Auth Context Debug] Safety timeout triggered. Releasing loading state.");
+            setLoading(false);
+          }
+        }, 3000);
+
+        async function initAuth() {
+          if (!window.isSupabaseConfigured()) {
+            if (mounted) setLoading(false);
+            return;
+          }
+
+          try {
+            const client = window.getSupabaseClient();
+            const { data: { session: initialSession } } = await client.auth.getSession();
+
+            if (mounted) {
+              if (initialSession?.user) {
+                setSession(initialSession);
+                setUser(initialSession.user);
+                setAuthView('dashboard');
+              } else {
+                setSession(null);
+                setUser(null);
+                setAuthView(prev => (prev === 'dashboard' ? 'landing' : prev));
+              }
+            }
+
+            const { data: { subscription } } = client.auth.onAuthStateChange(
+              (event, currentSession) => {
+                if (!mounted) return;
+
+                if (currentSession?.user) {
+                  setSession(currentSession);
+                  setUser(currentSession.user);
+                  setAuthView('dashboard');
+                } else {
+                  setSession(null);
+                  setUser(null);
+                  if (event === 'SIGNED_OUT') {
+                    setAuthView('landing');
+                  }
+                }
+              }
+            );
+
+            return () => subscription?.unsubscribe();
+          } catch (err) {
+            console.error("[Auth Context Debug] Error:", err.message);
+          } finally {
+            clearTimeout(safetyTimer);
+            if (mounted) setLoading(false);
+          }
+        }
+
+        initAuth();
+
+        return () => {
+          mounted = false;
+          clearTimeout(safetyTimer);
+        };
+      }, []);
+
+      const login = async (email, password) => {
+        setLoading(true);
+        try {
+          const res = await window.authService.signIn(email, password);
+          if (res?.user && res?.session) {
+            setUser(res.user);
+            setSession(res.session);
+            setAuthView('dashboard');
+            return { success: true };
+          }
+          return { success: false, error: "Login failed. Please verify credentials." };
+        } catch (err) {
+          return { success: false, error: err.message };
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      const signup = async (email, password, fullName) => {
+        setLoading(true);
+        try {
+          const res = await window.authService.signUp(email, password, fullName);
+          if (res.requireEmailConfirmation) {
+            return { success: false, requireEmailConfirmation: true, message: res.message };
+          }
+          if (res.user && res.session) {
+            setUser(res.user);
+            setSession(res.session);
+            setAuthView('dashboard');
+            return { success: true };
+          }
+          return { success: true, message: "Account created! You can now sign in." };
+        } catch (err) {
+          return { success: false, error: err.message };
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      const loginWithGoogle = async () => {
+        setLoading(true);
+        try {
+          await window.authService.signInWithGoogle();
+          return { success: true };
+        } catch (err) {
+          return { success: false, error: err.message };
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      const logout = async () => {
+        setLoading(true);
+        try {
+          await window.authService.signOut();
+        } catch (err) {
+          console.error("[Auth Context Debug] Logout notice:", err.message);
+        } finally {
+          setUser(null);
+          setSession(null);
+          setAuthView('landing');
+          setLoading(false);
+        }
+      };
+
+      return (
+        <AuthContext.Provider value={{ user, session, loading, authView, setAuthView, login, signup, loginWithGoogle, logout }}>
+          {children}
+        </AuthContext.Provider>
+      );
+    };
+
+    window.useAuth = function() {
+      return useContext(AuthContext);
+    };
+
+    // --- 2. GoalContext ---
+    const GoalContext = createContext();
+
+    window.GoalProvider = function({ children }) {
+      const { user } = window.useAuth();
+
+      const [goals, setGoals] = useState([]);
+      const [streak, setStreak] = useState({ current_streak: 0, longest_streak: 0, last_checkin_date: null });
+      const [calendarHistory, setCalendarHistory] = useState({});
+      const [profile, setProfile] = useState(null);
+      const [dataLoading, setDataLoading] = useState(false);
+      const [errorBanner, setErrorBanner] = useState(null);
+      const [feedbackBanner, setFeedbackBanner] = useState(null);
+
+      const refreshUserData = useCallback(async () => {
+        if (!user) {
+          setGoals([]);
+          setStreak({ current_streak: 0, longest_streak: 0, last_checkin_date: null });
+          setCalendarHistory({});
+          setProfile(null);
+          return;
+        }
+
+        setDataLoading(true);
+        setErrorBanner(null);
+
+        try {
+          const goalsTree = await window.goalService.fetchUserGoals(user.id);
+          setGoals(goalsTree);
+
+          const streakData = await window.goalService.fetchStreak(user.id);
+          setStreak(streakData);
+
+          const today = new Date();
+          const calMap = await window.goalService.fetchCalendarCheckIns(user.id, today.getFullYear(), today.getMonth());
+          setCalendarHistory(calMap);
+
+          const profData = await window.goalService.fetchUserProfile(user.id);
+          setProfile(profData);
+        } catch (err) {
+          console.error("[GoalContext] Error loading user data:", err.message);
+          setErrorBanner("Failed to sync data with Supabase: " + err.message);
+        } finally {
+          setDataLoading(false);
+        }
+      }, [user]);
+
+      useEffect(() => {
+        refreshUserData();
+      }, [user, refreshUserData]);
+
+      const addGoal = async (title, category = 'General', color = '#6366f1') => {
+        if (!user) return;
+        setErrorBanner(null);
+        try {
+          const newGoal = await window.goalService.createGoal(user.id, title, category, color);
+          setGoals(prev => [newGoal, ...prev]);
+          setFeedbackBanner("🎯 Goal created successfully!");
+          setTimeout(() => setFeedbackBanner(null), 3000);
+        } catch (err) {
+          setErrorBanner("Failed to create goal: " + err.message);
+        }
+      };
+
+      const deleteGoal = async (goalId) => {
+        if (!user) return;
+        setErrorBanner(null);
+        try {
+          await window.goalService.deleteGoal(goalId);
+          setGoals(prev => prev.filter(g => g.id !== goalId));
+          setFeedbackBanner("Goal deleted.");
+          setTimeout(() => setFeedbackBanner(null), 3000);
+        } catch (err) {
+          setErrorBanner("Failed to delete goal: " + err.message);
+        }
+      };
+
+      const addTask = async (goalId, taskTitle) => {
+        if (!user) return;
+        setErrorBanner(null);
+        try {
+          const newTask = await window.goalService.createTask(user.id, goalId, taskTitle);
+          setGoals(prev => prev.map(g => (g.id === goalId ? { ...g, tasks: [...g.tasks, newTask] } : g)));
+          setFeedbackBanner("📌 Task added.");
+          setTimeout(() => setFeedbackBanner(null), 3000);
+        } catch (err) {
+          setErrorBanner("Failed to add task: " + err.message);
+        }
+      };
+
+      const deleteTask = async (goalId, taskId) => {
+        if (!user) return;
+        setErrorBanner(null);
+        try {
+          await window.goalService.deleteTask(taskId);
+          setGoals(prev => prev.map(g => (g.id === goalId ? { ...g, tasks: g.tasks.filter(t => t.id !== taskId) } : g)));
+        } catch (err) {
+          setErrorBanner("Failed to delete task: " + err.message);
+        }
+      };
+
+      const addSubtask = async (goalId, taskId, subtaskTitle) => {
+        if (!user) return;
+        setErrorBanner(null);
+        try {
+          const newSubtask = await window.goalService.createSubtask(user.id, taskId, subtaskTitle);
+          setGoals(prev => prev.map(g => {
+            if (g.id === goalId) {
+              return {
+                ...g,
+                tasks: g.tasks.map(t => (t.id === taskId ? { ...t, subtasks: [...t.subtasks, newSubtask] } : t))
+              };
+            }
+            return g;
+          }));
+        } catch (err) {
+          setErrorBanner("Failed to add subtask: " + err.message);
+        }
+      };
+
+      const toggleSubtask = async (goalId, taskId, subtaskId, currentStatus) => {
+        if (!user) return;
+        setErrorBanner(null);
+        const newStatus = !currentStatus;
+
+        setGoals(prev => prev.map(g => {
+          if (g.id === goalId) {
+            return {
+              ...g,
+              tasks: g.tasks.map(t => {
+                if (t.id === taskId) {
+                  const updatedSubtasks = t.subtasks.map(st => (st.id === subtaskId ? { ...st, completed: newStatus } : st));
+                  const allDone = updatedSubtasks.length > 0 && updatedSubtasks.every(st => st.completed);
+                  return { ...t, completed: allDone, subtasks: updatedSubtasks };
+                }
+                return t;
+              })
+            };
+          }
+          return g;
+        }));
+
+        try {
+          await window.goalService.toggleSubtask(subtaskId, newStatus);
+        } catch (err) {
+          setErrorBanner("Failed to toggle subtask: " + err.message);
+          refreshUserData();
+        }
+      };
+
+      const deleteSubtask = async (goalId, taskId, subtaskId) => {
+        if (!user) return;
+        setErrorBanner(null);
+        try {
+          await window.goalService.deleteSubtask(subtaskId);
+          setGoals(prev => prev.map(g => {
+            if (g.id === goalId) {
+              return {
+                ...g,
+                tasks: g.tasks.map(t => (t.id === taskId ? { ...t, subtasks: t.subtasks.filter(st => st.id !== subtaskId) } : t))
+              };
+            }
+            return g;
+          }));
+        } catch (err) {
+          setErrorBanner("Failed to delete subtask: " + err.message);
+        }
+      };
+
+      const triggerDailyCheckIn = async () => {
+        if (!user) return;
+        setErrorBanner(null);
+
+        let completedCount = 0;
+        goals.forEach(g => g.tasks.forEach(t => t.subtasks.forEach(st => {
+          if (st.completed) completedCount++;
+        })));
+
+        try {
+          const res = await window.goalService.recordDailyCheckIn(user.id, completedCount);
+
+          if (res.alreadyCheckedIn) {
+            setFeedbackBanner("⚡ " + res.message);
+            setTimeout(() => setFeedbackBanner(null), 3500);
+          } else {
+            if (window.confetti) {
+              window.confetti({ particleCount: 120, spread: 80, origin: { y: 0.6 } });
+            }
+            setStreak(res.streak);
+            const todayStr = new Date().toISOString().split('T')[0];
+            setCalendarHistory(prev => ({ ...prev, [todayStr]: true }));
+            setFeedbackBanner("🔥 " + res.message);
+            setTimeout(() => setFeedbackBanner(null), 3500);
+          }
+        } catch (err) {
+          setErrorBanner("Check-in failed: " + err.message);
+        }
+      };
+
+      const updateUserProfile = async (fullName) => {
+        if (!user) return;
+        setErrorBanner(null);
+        try {
+          const updated = await window.goalService.updateProfile(user.id, fullName);
+          setProfile(updated);
+          setFeedbackBanner("Profile name updated successfully!");
+          setTimeout(() => setFeedbackBanner(null), 3000);
+        } catch (err) {
+          setErrorBanner("Failed to update profile: " + err.message);
+        }
+      };
+
+      const getStats = () => {
+        let totalGoals = goals.length;
+        let totalTasks = 0;
+        let completedTasks = 0;
+        let totalSubtasks = 0;
+        let completedSubtasks = 0;
+
+        goals.forEach(g => {
+          g.tasks.forEach(t => {
+            totalTasks++;
+            if (t.completed) completedTasks++;
+            t.subtasks.forEach(st => {
+              totalSubtasks++;
+              if (st.completed) completedSubtasks++;
+            });
+          });
+        });
+
+        const completionPercentage = totalSubtasks > 0 ? Math.round((completedSubtasks / totalSubtasks) * 100) : 0;
+
+        return {
+          totalGoals,
+          totalTasks,
+          completedTasks,
+          totalSubtasks,
+          completedSubtasks,
+          completionPercentage,
+          currentStreak: streak.current_streak || 0,
+          longestStreak: streak.longest_streak || 0
+        };
+      };
+
+      return (
+        <GoalContext.Provider value={{ goals, streak, calendarHistory, profile, dataLoading, errorBanner, feedbackBanner, refreshUserData, addGoal, deleteGoal, addTask, deleteTask, addSubtask, toggleSubtask, deleteSubtask, triggerDailyCheckIn, updateUserProfile, getStats }}>
+          {children}
+        </GoalContext.Provider>
+      );
+    };
+
+    window.useGoals = function() {
+      return useContext(GoalContext);
+    };
+
+    // --- 3. UI Components ---
+    window.LoadingSpinner = function({ message = "Loading..." }) {
+      return (
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 20px', gap: '16px' }}>
+          <div style={{ width: '40px', height: '40px', border: '3px solid rgba(99, 102, 241, 0.2)', borderTop: '3px solid var(--primary)', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }}></div>
+          <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>{message}</p>
+          <style>{`@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }`}</style>
+        </div>
+      );
+    };
+
+    window.Header = function({ onNavigateAuth }) {
+      return (
+        <header className="landing-header">
+          <a href="#" className="logo-container">
+            <div className="logo-icon"><i data-lucide="zap" style={{ color: '#fff' }}></i></div>
+            <span>locin</span>
+          </a>
+          <nav className="nav-links">
+            <a href="#features" className="nav-link">Features</a>
+            <a href="#motivation" className="nav-link">Motivation</a>
+            <a href="#compounding" className="nav-link">Why It Works</a>
+            <button className="btn btn-secondary btn-sm" onClick={() => onNavigateAuth('login')}>Sign In</button>
+            <button className="btn btn-primary btn-sm" onClick={() => onNavigateAuth('signup')}>Get Started</button>
+          </nav>
+        </header>
+      );
+    };
+
+    window.Modal = function({ isOpen, onClose, title, children }) {
+      if (!isOpen) return null;
+      return (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0, 0, 0, 0.75)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '20px' }}>
+          <div className="glass-card" style={{ maxWidth: '500px', width: '100%', padding: '28px', position: 'relative' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '20px', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px' }}>
+              <h3 style={{ fontSize: '1.25rem' }}>{title}</h3>
+              <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '1.2rem' }}>✕</button>
+            </div>
+            <div>{children}</div>
+          </div>
+        </div>
+      );
+    };
+
+    window.HeroSection = function({ onNavigateAuth }) {
+      return (
+        <section className="hero-section">
+          <div className="hero-pill">
+            <span className="badge badge-primary"><i data-lucide="sparkles" style={{ width: 14, height: 14 }}></i> Next-Gen Goal Tracking System</span>
+          </div>
+          <h1 className="hero-title">Small actions. <br /><span className="gradient-text">Massive results.</span></h1>
+          <p className="hero-subtitle">Transform your ambitions into daily compounding victories. Set structured goals, check in seamlessly, and watch your 🔥 fire streak grow.</p>
+          <div className="hero-cta-group">
+            <button className="btn btn-primary" onClick={() => onNavigateAuth('signup')}><span>Start Your Journey</span><i data-lucide="arrow-right" style={{ width: 18, height: 18 }}></i></button>
+            <button className="btn btn-secondary" onClick={() => onNavigateAuth('login')}>Get Started</button>
+          </div>
+          <div className="hero-visual">
+            <div className="glass-card floating-card animate-float" style={{ animationDelay: '0s' }}>
+              <div className="floating-card-icon">🧠</div>
+              <div><div style={{ fontWeight: 700, fontSize: '0.95rem' }}>Learn AI & ML</div><div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Python Basics • Variables</div><div className="badge badge-success" style={{ marginTop: 6 }}>92% Completed</div></div>
+            </div>
+            <div className="glass-card floating-card animate-float" style={{ animationDelay: '1.5s', borderColor: 'rgba(245, 158, 11, 0.4)' }}>
+              <div className="floating-card-icon">🔥</div>
+              <div><div style={{ fontWeight: 700, fontSize: '0.95rem' }}>Active Streak</div><div style={{ fontSize: '1.2rem', fontWeight: 800 }} className="gradient-flame">7 Days Unstoppable</div><div style={{ fontSize: '0.75rem', color: 'var(--text-subtle)' }}>Duolingo-inspired Momentum</div></div>
+            </div>
+            <div className="glass-card floating-card animate-float" style={{ animationDelay: '3s' }}>
+              <div className="floating-card-icon">📅</div>
+              <div><div style={{ fontWeight: 700, fontSize: '0.95rem' }}>Calendar Progress</div><div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>28 Days Checked In</div><div className="badge badge-primary" style={{ marginTop: 6 }}>Perfect Monthly Consistency</div></div>
+            </div>
+          </div>
+        </section>
+      );
+    };
+
+    window.FeaturesSection = function() {
+      const features = [
+        { icon: 'target', title: '3-Tier Goal Management', desc: 'Organize Goals into Tasks, and break Tasks into Subtasks.' },
+        { icon: 'check-circle-2', title: 'Daily Check-ins', desc: 'Satisfying check-ins with celebratory confetti bursts.' },
+        { icon: 'flame', title: 'Duolingo Fire Streak', desc: 'Build unstoppable momentum with visual 🔥 streak tracking.' },
+        { icon: 'calendar', title: 'Calendar Heatmap', desc: 'Visualize your monthly activity with crisp color indicators.' },
+        { icon: 'bar-chart-3', title: 'Statistics & Analytics', desc: 'Track completion rates and weekly activity charts.' },
+        { icon: 'layout-dashboard', title: 'Personalized Dashboard', desc: 'A clean glassmorphic command center tailored for maximum focus.' },
+        { icon: 'user-check', title: 'Profile & Achievements', desc: 'Manage your profile and review completed goals over time.' }
+      ];
+      return (
+        <section id="features" className="section-container">
+          <div className="section-header">
+            <span className="badge badge-primary" style={{ marginBottom: 12 }}>Designed for Focus</span>
+            <h2 className="section-title">Everything you need to master your goals</h2>
+            <p className="section-description">Built with precision to help student developers and ambitious builders maintain consistency.</p>
+          </div>
+          <div className="features-grid">
+            {features.map((f, i) => (
+              <div key={i} className="glass-card feature-card">
+                <div className="feature-icon-wrapper"><i data-lucide={f.icon} style={{ width: 28, height: 28 }}></i></div>
+                <h3>{f.title}</h3>
+                <p>{f.desc}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+      );
+    };
+
+    window.MotivationSection = function() {
+      const quotes = [
+        { quote: "I fear not the man who has practiced 10,000 kicks once, but I fear the man who has practiced one kick 10,000 times.", author: "Bruce Lee", role: "Martial Artist & Philosopher" },
+        { quote: "You do not rise to the level of your goals. You fall to the level of your systems.", author: "James Clear", role: "Author of Atomic Habits" },
+        { quote: "Discipline is doing what you hate to do, but doing it like you love it.", author: "Mike Tyson", role: "Heavyweight Champion" },
+        { quote: "I hated every minute of training, but I said, 'Don't quit. Suffer now and live as a champion.'", author: "Muhammad Ali", role: "Global Icon & Champion" },
+        { quote: "The only way to do great work is to love what you do.", author: "Steve Jobs", role: "Co-Founder of Apple" },
+        { quote: "The resistance that you fight physically and in life builds a strong character.", author: "Arnold Schwarzenegger", role: "Bodybuilder & Entrepreneur" }
+      ];
+      return (
+        <section id="motivation" className="section-container" style={{ background: 'rgba(255, 255, 255, 0.01)' }}>
+          <div className="section-header">
+            <span className="badge badge-flame" style={{ marginBottom: 12 }}>Mindset matters</span>
+            <h2 className="section-title">Words from the World's Best</h2>
+            <p className="section-description">Consistency is the bridge between goals and accomplishment.</p>
+          </div>
+          <div className="quotes-grid">
+            {quotes.map((q, i) => (
+              <div key={i} className="glass-card quote-card">
+                <div className="quote-icon">“</div>
+                <p className="quote-text">{q.quote}</p>
+                <div>
+                  <div className="quote-author">{q.author}</div>
+                  <div className="quote-role">{q.role}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      );
+    };
+
+    window.CompoundingSection = function() {
+      const [dailyPct, setDailyPct] = useState(1);
+      const growthFactor = Math.pow(1 + dailyPct / 100, 365).toFixed(1);
+      const declineFactor = Math.pow(1 - dailyPct / 100, 365).toFixed(2);
+
+      return (
+        <section id="compounding" className="section-container">
+          <div className="section-header">
+            <span className="badge badge-success" style={{ marginBottom: 12 }}>The Math of Success</span>
+            <h2 className="section-title">Why Small Habits Compound</h2>
+            <p className="section-description">Improving just {dailyPct}% every day yields exponential results by year end.</p>
+          </div>
+          <div className="compounding-wrapper">
+            <div className="glass-card compounding-card">
+              <h3>Interactive Compounding Calculator</h3>
+              <p style={{ color: 'var(--text-muted)', fontSize: '0.95rem' }}>Adjust your daily effort percentage:</p>
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8, fontWeight: 600 }}>
+                  <span>Daily Effort Increase:</span>
+                  <span className="gradient-text">{dailyPct}% per day</span>
+                </div>
+                <input type="range" min="0.1" max="3" step="0.1" value={dailyPct} onChange={(e) => setDailyPct(parseFloat(e.target.value))} style={{ width: '100%', accentColor: 'var(--primary)', height: 6, cursor: 'pointer' }} />
+              </div>
+              <div className="stat-box-group">
+                <div className="stat-box" style={{ borderColor: 'rgba(16, 185, 129, 0.4)' }}>
+                  <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: 4 }}>1.0{dailyPct}³⁶⁵ (1% Better Every Day)</div>
+                  <div className="stat-val" style={{ color: '#6ee7b7' }}>{growthFactor}x</div>
+                  <div style={{ fontSize: '0.75rem', color: '#10b981', marginTop: 4 }}>Exponential Success</div>
+                </div>
+                <div className="stat-box" style={{ borderColor: 'rgba(239, 68, 68, 0.3)' }}>
+                  <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: 4 }}>0.99³⁶⁵ (1% Worse Every Day)</div>
+                  <div className="stat-val" style={{ color: '#fca5a5' }}>{declineFactor}x</div>
+                  <div style={{ fontSize: '0.75rem', color: '#ef4444', marginTop: 4 }}>Stagnation</div>
+                </div>
+              </div>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+              <div className="glass-card" style={{ padding: 28 }}>
+                <h4 style={{ fontSize: '1.1rem', marginBottom: 8, color: 'var(--primary)' }}>🎯 1. Systems Over Intensity</h4>
+                <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>Locin structures your goals into small daily subtasks that take minutes to check off, creating sustainable momentum.</p>
+              </div>
+              <div className="glass-card" style={{ padding: 28 }}>
+                <h4 style={{ fontSize: '1.1rem', marginBottom: 8, color: 'var(--accent-flame)' }}>🔥 2. The Power of Streaks</h4>
+                <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>Visual streak counters trigger dopamine loops. Once you build a streak, you won't want to break the chain.</p>
+              </div>
+              <div className="glass-card" style={{ padding: 28 }}>
+                <h4 style={{ fontSize: '1.1rem', marginBottom: 8, color: 'var(--secondary)' }}>📈 3. Clear Visual Feedback</h4>
+                <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>Calendar heatmaps and statistics charts give you immediate proof of your progress every week.</p>
+              </div>
+            </div>
+          </div>
+        </section>
+      );
+    };
+
+    window.FinalCtaSection = function({ onNavigateAuth }) {
+      return (
+        <section className="final-cta">
+          <div className="glass-card final-cta-card">
+            <span className="badge badge-primary">Ready to Level Up?</span>
+            <h2 style={{ fontSize: '2.5rem', lineHeight: 1.2 }}>Start Building <span className="gradient-text">Better Habits Today</span></h2>
+            <p style={{ color: 'var(--text-muted)', maxWidth: 550 }}>Join thousands of students and developers using Locin to track daily goals, build fire streaks, and compound success.</p>
+            <button className="btn btn-primary" style={{ padding: '14px 32px', fontSize: '1.05rem' }} onClick={() => onNavigateAuth('login')}>
+              <span>Start Building Better Habits</span>
+              <i data-lucide="arrow-right" style={{ width: 20, height: 20 }}></i>
+            </button>
+          </div>
+        </section>
+      );
+    };
+
+    window.AuthPage = function({ mode = 'login', onBackToLanding }) {
+      const { login, signup, loginWithGoogle, loading } = window.useAuth();
+
+      const [isSignUp, setIsSignUp] = useState(mode === 'signup');
+      const [email, setEmail] = useState('');
+      const [password, setPassword] = useState('');
+      const [fullName, setFullName] = useState('');
+      const [errorMsg, setErrorMsg] = useState('');
+      const [infoMsg, setInfoMsg] = useState('');
+
+      const handleSubmit = async (e) => {
+        e.preventDefault();
+        setErrorMsg('');
+        setInfoMsg('');
+
+        if (!email || !password) {
+          setErrorMsg('Please fill in both email and password.');
+          return;
+        }
+
+        if (isSignUp) {
+          if (!fullName) {
+            setErrorMsg('Please enter your full name.');
+            return;
+          }
+          const res = await signup(email, password, fullName);
+          if (res.requireEmailConfirmation) {
+            setInfoMsg(res.message);
+            setIsSignUp(false);
+          } else if (!res.success) {
+            setErrorMsg(res.error || 'Account creation failed. Please check your credentials.');
+          } else if (res.message) {
+            setInfoMsg(res.message);
+            setIsSignUp(false);
+          }
+        } else {
+          const res = await login(email, password);
+          if (!res.success) {
+            setErrorMsg(res.error || 'Sign in failed. Please check your email and password.');
+          }
+        }
+      };
+
+      return (
+        <div className="auth-container">
+          <div className="glass-card auth-wrapper">
+            <div className="auth-quote-side">
+              <div>
+                <div className="logo-container" style={{ marginBottom: 40 }}>
+                  <div className="logo-icon"><i data-lucide="zap" style={{ color: '#fff' }}></i></div>
+                  <span>locin</span>
+                </div>
+                <div style={{ fontSize: '2.5rem', color: 'var(--primary)', marginBottom: 12 }}>“</div>
+                <p style={{ fontStyle: 'italic', fontSize: '1.1rem', lineHeight: 1.6, marginBottom: 20 }}>
+                  "I fear not the man who has practiced 10,000 kicks once, but I fear the man who has practiced one kick 10,000 times."
+                </p>
+                <div style={{ fontWeight: 700, color: 'var(--text-main)' }}>Bruce Lee</div>
+                <div style={{ fontSize: '0.8rem', color: 'var(--text-subtle)' }}>Martial Artist & Philosopher</div>
+              </div>
+              <div style={{ marginTop: 40 }}>
+                <button className="btn btn-secondary btn-sm" onClick={onBackToLanding}>← Back to Home</button>
+              </div>
+            </div>
+
+            <div className="auth-form-side">
+              <div className="auth-header">
+                <h2>{isSignUp ? 'Create your account' : 'Welcome back'}</h2>
+                <p>{isSignUp ? 'Start tracking your goals in seconds' : 'Sign in to access your dashboard & streak'}</p>
+              </div>
+
+              {infoMsg && (
+                <div className="badge badge-success" style={{ padding: 12, borderRadius: 8, marginBottom: 16, fontSize: '0.85rem', width: '100%', display: 'block', lineHeight: 1.4 }}>
+                  ℹ️ {infoMsg}
+                </div>
+              )}
+
+              {errorMsg && (
+                <div className="btn-danger" style={{ padding: 12, borderRadius: 8, marginBottom: 16, fontSize: '0.85rem', lineHeight: 1.4 }}>
+                  ⚠️ {errorMsg}
+                </div>
+              )}
+
+              <form onSubmit={handleSubmit}>
+                {isSignUp && (
+                  <div className="form-group">
+                    <label htmlFor="fullNameInput">Full Name</label>
+                    <input id="fullNameInput" type="text" className="form-input" placeholder="e.g. Alex Johnson" value={fullName} onChange={(e) => setFullName(e.target.value)} required />
+                  </div>
+                )}
+
+                <div className="form-group">
+                  <label htmlFor="emailInput">Email Address</label>
+                  <input id="emailInput" type="email" className="form-input" placeholder="you@university.edu" value={email} onChange={(e) => setEmail(e.target.value)} required />
+                </div>
+
+                <div className="form-group">
+                  <label htmlFor="passwordInput">Password</label>
+                  <input id="passwordInput" type="password" className="form-input" placeholder="••••••••" value={password} onChange={(e) => setPassword(e.target.value)} required />
+                </div>
+
+                <button type="submit" className="btn btn-primary" style={{ width: '100%', marginTop: 8 }} disabled={loading}>
+                  {loading ? 'Authenticating...' : (isSignUp ? 'Create Account' : 'Sign In')}
+                </button>
+              </form>
+
+              <div className="divider">OR</div>
+
+              <button className="btn btn-google" onClick={() => loginWithGoogle()} disabled={loading}>
+                <svg width="18" height="18" viewBox="0 0 24 24">
+                  <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+                  <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+                  <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/>
+                  <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
+                </svg>
+                <span>Continue with Google</span>
+              </button>
+
+              <div className="auth-footer">
+                {isSignUp ? (
+                  <span>Already have an account? <span className="auth-link" onClick={() => { setIsSignUp(false); setErrorMsg(''); setInfoMsg(''); }}>Sign In</span></span>
+                ) : (
+                  <span>Don't have an account? <span className="auth-link" onClick={() => { setIsSignUp(true); setErrorMsg(''); setInfoMsg(''); }}>Sign Up</span></span>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    };
+
+    window.Sidebar = function({ activeTab, setActiveTab }) {
+      const { logout } = window.useAuth();
+      const navItems = [
+        { id: 'home', label: 'Dashboard', icon: 'layout-dashboard' },
+        { id: 'goals', label: 'Goals', icon: 'target' },
+        { id: 'checkin', label: 'Daily Check-in', icon: 'check-square' },
+        { id: 'calendar', label: 'Calendar', icon: 'calendar' },
+        { id: 'stats', label: 'Statistics', icon: 'bar-chart-3' },
+        { id: 'profile', label: 'Profile', icon: 'user' }
+      ];
+      return (
+        <aside className="sidebar">
+          <div>
+            <div className="sidebar-header">
+              <a href="#" className="logo-container">
+                <div className="logo-icon"><i data-lucide="zap" style={{ color: '#fff' }}></i></div>
+                <span>locin</span>
+              </a>
+            </div>
+            <nav className="sidebar-nav">
+              {navItems.map(item => (
+                <div key={item.id} className={`nav-item ${activeTab === item.id ? 'active' : ''}`} onClick={() => setActiveTab(item.id)}>
+                  <i data-lucide={item.icon} style={{ width: 18, height: 18 }}></i>
+                  <span>{item.label}</span>
+                </div>
+              ))}
+            </nav>
+          </div>
+          <div>
+            <div className="nav-item" onClick={logout} style={{ color: '#fca5a5', marginTop: 20 }}>
+              <i data-lucide="log-out" style={{ width: 18, height: 18 }}></i>
+              <span>Logout</span>
+            </div>
+          </div>
+        </aside>
+      );
+    };
+
+    window.DashboardHome = function({ setActiveTab }) {
+      const { user } = window.useAuth();
+      const { streak, profile, getStats, triggerDailyCheckIn, dataLoading, errorBanner, feedbackBanner } = window.useGoals();
+      const stats = getStats();
+      const displayName = profile?.full_name || user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'Scholar';
+
+      return (
+        <div>
+          <div className="top-bar">
+            <div>
+              <h1 style={{ fontSize: '1.8rem' }}>Welcome back, <span className="gradient-text">{displayName}</span>! 👋</h1>
+              <p style={{ color: 'var(--text-muted)', fontSize: '0.95rem' }}>Here is your real-time performance overview from Supabase.</p>
+            </div>
+            <div className="user-profile-badge">
+              <div className="avatar">{displayName.charAt(0).toUpperCase()}</div>
+              <div>
+                <div style={{ fontWeight: 600, fontSize: '0.85rem' }}>{displayName}</div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-subtle)' }}>{user?.email}</div>
+              </div>
+            </div>
+          </div>
+
+          {errorBanner && <div className="btn-danger" style={{ padding: 14, borderRadius: 10, marginBottom: 20, fontSize: '0.9rem' }}>⚠️ {errorBanner}</div>}
+          {feedbackBanner && <div className="badge badge-success" style={{ padding: '10px 16px', borderRadius: 10, marginBottom: 20, fontSize: '0.9rem', width: '100%', display: 'flex', justifyContent: 'center' }}>{feedbackBanner}</div>}
+
+          {dataLoading ? <window.LoadingSpinner message="Syncing metrics with Supabase..." /> : (
+            <>
+              <div className="streak-widget">
+                <div className="streak-count-display">
+                  <div className="fire-badge-large">🔥</div>
+                  <div>
+                    <div style={{ fontSize: '0.85rem', color: '#fcd34d', fontWeight: 600 }}>CURRENT FIRE STREAK</div>
+                    <div style={{ fontSize: '2.2rem', fontWeight: 800, lineHeight: 1 }} className="gradient-flame">{streak.current_streak || 0} Days Active</div>
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: 4 }}>Longest Streak Record: {streak.longest_streak || 0} Days ⚡</div>
+                  </div>
+                </div>
+                <button className="btn btn-primary" onClick={triggerDailyCheckIn} style={{ background: 'linear-gradient(135deg, #f59e0b 0%, #ef4444 100%)', boxShadow: 'var(--shadow-flame)' }}>
+                  <span>Daily Check-in 🔥</span>
+                </button>
+              </div>
+
+              <div className="metrics-grid">
+                <div className="glass-card metric-card">
+                  <div className="metric-info"><p>Total Goals</p><h3>{stats.totalGoals}</h3></div>
+                  <div className="metric-icon" style={{ background: 'rgba(99, 102, 241, 0.15)', color: '#a5b4fc' }}><i data-lucide="target" style={{ width: 24, height: 24 }}></i></div>
+                </div>
+                <div className="glass-card metric-card">
+                  <div className="metric-info"><p>Tasks Completed</p><h3>{stats.completedTasks} / {stats.totalTasks}</h3></div>
+                  <div className="metric-icon" style={{ background: 'rgba(16, 185, 129, 0.15)', color: '#6ee7b7' }}><i data-lucide="check-circle-2" style={{ width: 24, height: 24 }}></i></div>
+                </div>
+                <div className="glass-card metric-card">
+                  <div className="metric-info"><p>Completion Rate</p><h3>{stats.completionPercentage}%</h3></div>
+                  <div className="metric-icon" style={{ background: 'rgba(236, 72, 153, 0.15)', color: '#f472b6' }}><i data-lucide="trending-up" style={{ width: 24, height: 24 }}></i></div>
+                </div>
+                <div className="glass-card metric-card">
+                  <div className="metric-info"><p>Longest Streak</p><h3>{stats.longestStreak} Days</h3></div>
+                  <div className="metric-icon" style={{ background: 'rgba(245, 158, 11, 0.15)', color: '#fcd34d' }}><i data-lucide="award" style={{ width: 24, height: 24 }}></i></div>
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
+                <div className="glass-card" style={{ padding: 28 }}>
+                  <h3 style={{ fontSize: '1.2rem', marginBottom: 16 }}>Today's Completion Progress</h3>
+                  <div className="progress-bar-bg"><div className="progress-bar-fill" style={{ width: `${stats.completionPercentage}%` }}></div></div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                    <span>{stats.completedSubtasks} of {stats.totalSubtasks} subtasks checked off</span>
+                    <span>{stats.completionPercentage}%</span>
+                  </div>
+                </div>
+                <div className="glass-card" style={{ padding: 28, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                  <div>
+                    <h3 style={{ fontSize: '1.2rem', marginBottom: 8 }}>Goal Action Center</h3>
+                    <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>Create overarching goals, break them down into subtasks, and track history.</p>
+                  </div>
+                  <div style={{ display: 'flex', gap: 12, marginTop: 16 }}>
+                    <button className="btn btn-secondary btn-sm" onClick={() => setActiveTab('goals')}>Manage Goals →</button>
+                    <button className="btn btn-secondary btn-sm" onClick={() => setActiveTab('calendar')}>View Calendar →</button>
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      );
+    };
+
+    window.GoalManager = function() {
+      const { goals, addGoal, deleteGoal, addTask, deleteTask, addSubtask, toggleSubtask, deleteSubtask, dataLoading, errorBanner } = window.useGoals();
+      const [isGoalModalOpen, setIsGoalModalOpen] = useState(false);
+      const [goalTitle, setGoalTitle] = useState('');
+      const [goalCategory, setGoalCategory] = useState('Technology');
+      const [taskModalGoalId, setTaskModalGoalId] = useState(null);
+      const [taskTitle, setTaskTitle] = useState('');
+      const [subtaskModalInfo, setSubtaskModalInfo] = useState(null);
+      const [subtaskTitle, setSubtaskTitle] = useState('');
+
+      const handleCreateGoal = async (e) => {
+        e.preventDefault();
+        if (!goalTitle.trim()) return;
+        await addGoal(goalTitle, goalCategory);
+        setGoalTitle('');
+        setIsGoalModalOpen(false);
+      };
+
+      const handleCreateTask = async (e) => {
+        e.preventDefault();
+        if (!taskTitle.trim() || !taskModalGoalId) return;
+        await addTask(taskModalGoalId, taskTitle);
+        setTaskTitle('');
+        setTaskModalGoalId(null);
+      };
+
+      const handleCreateSubtask = async (e) => {
+        e.preventDefault();
+        if (!subtaskTitle.trim() || !subtaskModalInfo) return;
+        await addSubtask(subtaskModalInfo.goalId, subtaskModalInfo.taskId, subtaskTitle);
+        setSubtaskTitle('');
+        setSubtaskModalInfo(null);
+      };
+
+      return (
+        <div>
+          <div className="goals-header">
+            <div>
+              <h1 style={{ fontSize: '1.8rem' }}>Goal Management</h1>
+              <p style={{ color: 'var(--text-muted)', fontSize: '0.95rem' }}>Structure your ambitions: 🎯 Goal → 📌 Task → 🔹 Subtasks</p>
+            </div>
+            <button className="btn btn-primary" onClick={() => setIsGoalModalOpen(true)}><i data-lucide="plus" style={{ width: 18, height: 18 }}></i><span>Create New Goal</span></button>
+          </div>
+
+          {errorBanner && <div className="btn-danger" style={{ padding: 12, borderRadius: 8, marginBottom: 20, fontSize: '0.85rem' }}>⚠️ {errorBanner}</div>}
+
+          {dataLoading ? <window.LoadingSpinner message="Syncing goals with Supabase database..." /> : goals.length === 0 ? (
+            <div className="glass-card" style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>
+              <p style={{ fontSize: '1.1rem', marginBottom: 12 }}>No goals created yet in your Supabase account.</p>
+              <button className="btn btn-primary btn-sm" onClick={() => setIsGoalModalOpen(true)}>+ Create Your First Goal</button>
+            </div>
+          ) : (
+            goals.map(goal => {
+              let subtaskCount = 0;
+              let doneSubtasks = 0;
+              (goal.tasks || []).forEach(t => {
+                (t.subtasks || []).forEach(st => {
+                  subtaskCount++;
+                  if (st.completed) doneSubtasks++;
+                });
+              });
+              const goalPct = subtaskCount > 0 ? Math.round((doneSubtasks / subtaskCount) * 100) : 0;
+
+              return (
+                <div key={goal.id} className="glass-card goal-card">
+                  <div className="goal-top">
+                    <div className="goal-title-group">
+                      <span className="badge badge-primary">{goal.category}</span>
+                      <h2 style={{ fontSize: '1.4rem' }}>🎯 {goal.title}</h2>
+                    </div>
+                    <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                      <button className="btn btn-secondary btn-sm" onClick={() => setTaskModalGoalId(goal.id)}>+ Add Task</button>
+                      <button className="btn btn-danger btn-sm" onClick={() => deleteGoal(goal.id)}>🗑️</button>
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', color: 'var(--text-muted)' }}><span>Goal Progress</span><span>{goalPct}%</span></div>
+                  <div className="progress-bar-bg"><div className="progress-bar-fill" style={{ width: `${goalPct}%` }}></div></div>
+
+                  <div className="task-tree">
+                    {(goal.tasks || []).length === 0 ? <div style={{ fontSize: '0.85rem', color: 'var(--text-subtle)', fontStyle: 'italic' }}>No tasks added yet. Click "+ Add Task" above.</div> : (
+                      goal.tasks.map(task => (
+                        <div key={task.id} className="task-item">
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <div style={{ fontWeight: 600, fontSize: '1.05rem' }}>📌 {task.title}</div>
+                            <div style={{ display: 'flex', gap: 8 }}>
+                              <button className="btn btn-secondary btn-sm" style={{ padding: '4px 8px', fontSize: '0.75rem' }} onClick={() => setSubtaskModalInfo({ goalId: goal.id, taskId: task.id })}>+ Subtask</button>
+                              <button className="btn btn-danger btn-sm" style={{ padding: '4px 8px', fontSize: '0.75rem' }} onClick={() => deleteTask(goal.id, task.id)}>✕</button>
+                            </div>
+                          </div>
+                          <div className="subtask-tree">
+                            {(task.subtasks || []).length === 0 ? <div style={{ fontSize: '0.8rem', color: 'var(--text-subtle)' }}>No subtasks. Add subtasks to track daily completion.</div> : (
+                              task.subtasks.map(subtask => (
+                                <div key={subtask.id} className="subtask-item">
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                    <div className={`custom-checkbox ${subtask.completed ? 'checked' : ''}`} onClick={() => toggleSubtask(goal.id, task.id, subtask.id, subtask.completed)}>{subtask.completed && '✓'}</div>
+                                    <span style={{ textDecoration: subtask.completed ? 'line-through' : 'none', color: subtask.completed ? 'var(--text-subtle)' : 'var(--text-main)' }}>🔹 {subtask.title}</span>
+                                  </div>
+                                  <button style={{ background: 'none', border: 'none', color: 'var(--text-subtle)', cursor: 'pointer', fontSize: '0.8rem' }} onClick={() => deleteSubtask(goal.id, task.id, subtask.id)}>✕</button>
+                                </div>
+                              ))
+                            )}
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              );
+            })
+          )}
+
+          <window.Modal isOpen={isGoalModalOpen} onClose={() => setIsGoalModalOpen(false)} title="Create New Overarching Goal">
+            <form onSubmit={handleCreateGoal}>
+              <div className="form-group">
+                <label>Goal Title</label>
+                <input type="text" className="form-input" placeholder="e.g. Master Full-Stack Web Development" value={goalTitle} onChange={(e) => setGoalTitle(e.target.value)} required />
+              </div>
+              <div className="form-group">
+                <label>Category</label>
+                <select className="form-input" value={goalCategory} onChange={(e) => setGoalCategory(e.target.value)}>
+                  <option value="Technology">Technology & Coding</option>
+                  <option value="Academics">Academics & CSE</option>
+                  <option value="Health">Health & Fitness</option>
+                  <option value="Personal">Personal Growth</option>
+                </select>
+              </div>
+              <button type="submit" className="btn btn-primary" style={{ width: '100%', marginTop: 12 }}>Save Goal to Supabase</button>
+            </form>
+          </window.Modal>
+
+          <window.Modal isOpen={!!taskModalGoalId} onClose={() => setTaskModalGoalId(null)} title="Add Task under Goal">
+            <form onSubmit={handleCreateTask}>
+              <div className="form-group">
+                <label>Task Title</label>
+                <input type="text" className="form-input" placeholder="e.g. Supabase Auth Integration" value={taskTitle} onChange={(e) => setTaskTitle(e.target.value)} required />
+              </div>
+              <button type="submit" className="btn btn-primary" style={{ width: '100%', marginTop: 12 }}>Save Task</button>
+            </form>
+          </window.Modal>
+
+          <window.Modal isOpen={!!subtaskModalInfo} onClose={() => setSubtaskModalInfo(null)} title="Add Subtask under Task">
+            <form onSubmit={handleCreateSubtask}>
+              <div className="form-group">
+                <label>Subtask Title</label>
+                <input type="text" className="form-input" placeholder="e.g. Implement Row Level Security" value={subtaskTitle} onChange={(e) => setSubtaskTitle(e.target.value)} required />
+              </div>
+              <button type="submit" className="btn btn-primary" style={{ width: '100%', marginTop: 12 }}>Save Subtask</button>
+            </form>
+          </window.Modal>
+        </div>
+      );
+    };
+
+    window.DailyCheckIn = function() {
+      const { goals, streak, toggleSubtask, triggerDailyCheckIn, feedbackBanner, errorBanner } = window.useGoals();
+      const todaySubtasks = [];
+      goals.forEach(goal => {
+        (goal.tasks || []).forEach(task => {
+          (task.subtasks || []).forEach(subtask => {
+            todaySubtasks.push({ goalId: goal.id, goalTitle: goal.title, taskId: task.id, taskTitle: task.title, subtask });
+          });
+        });
+      });
+      const completedCount = todaySubtasks.filter(item => item.subtask.completed).length;
+
+      return (
+        <div>
+          <div className="top-bar">
+            <div>
+              <h1 style={{ fontSize: '1.8rem' }}>Daily Check-in</h1>
+              <p style={{ color: 'var(--text-muted)', fontSize: '0.95rem' }}>Complete today's check-in to record progress and grow your 🔥 streak!</p>
+            </div>
+            <button className="btn btn-primary" onClick={triggerDailyCheckIn} style={{ background: 'linear-gradient(135deg, #f59e0b 0%, #ef4444 100%)', boxShadow: 'var(--shadow-flame)' }}>
+              <span>Submit Today's Check-in 🔥</span>
+            </button>
+          </div>
+
+          {errorBanner && <div className="btn-danger" style={{ padding: 12, borderRadius: 8, marginBottom: 20, fontSize: '0.85rem' }}>⚠️ {errorBanner}</div>}
+          {feedbackBanner && <div className="badge badge-success" style={{ padding: '10px 16px', borderRadius: 8, marginBottom: 20, fontSize: '0.9rem', width: '100%', display: 'flex', justifyContent: 'center' }}>{feedbackBanner}</div>}
+
+          <div className="glass-card" style={{ padding: 24, marginBottom: 32, display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderColor: 'rgba(245, 158, 11, 0.4)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+              <div style={{ fontSize: '2.5rem' }}>🔥</div>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: '1.2rem' }}>Current Streak: {streak.current_streak || 0} Days</div>
+                <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>{completedCount} of {todaySubtasks.length} subtasks completed in database</div>
+              </div>
+            </div>
+            <div className="badge badge-flame" style={{ padding: '8px 16px', fontSize: '0.85rem' }}>Longest Record: {streak.longest_streak || 0} Days</div>
+          </div>
+
+          <div className="glass-card" style={{ padding: 28 }}>
+            <h3 style={{ fontSize: '1.2rem', marginBottom: 20 }}>Today's Action Checklist</h3>
+            {todaySubtasks.length === 0 ? <p style={{ color: 'var(--text-muted)' }}>No subtasks created yet. Add goals and subtasks in Goal Management first.</p> : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                {todaySubtasks.map((item, idx) => (
+                  <div key={idx} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 18px', background: item.subtask.completed ? 'rgba(16, 185, 129, 0.08)' : 'rgba(255, 255, 255, 0.03)', border: '1px solid', borderColor: item.subtask.completed ? 'rgba(16, 185, 129, 0.3)' : 'var(--border-color)', borderRadius: 'var(--radius-sm)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                      <div className={`custom-checkbox ${item.subtask.completed ? 'checked' : ''}`} onClick={() => toggleSubtask(item.goalId, item.taskId, item.subtask.id, item.subtask.completed)} style={{ width: 24, height: 24 }}>{item.subtask.completed && '✓'}</div>
+                      <div>
+                        <div style={{ fontWeight: 600, textDecoration: item.subtask.completed ? 'line-through' : 'none', color: item.subtask.completed ? 'var(--text-subtle)' : 'var(--text-main)' }}>{item.subtask.title}</div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>🎯 {item.goalTitle} → 📌 {item.taskTitle}</div>
+                      </div>
+                    </div>
+                    {item.subtask.completed && <span className="badge badge-success">Done</span>}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    };
+
+    window.CalendarView = function() {
+      const { user } = window.useAuth();
+      const { streak } = window.useGoals();
+
+      const [currentDate, setCurrentDate] = useState(new Date());
+      const [dbCheckIns, setDbCheckIns] = useState({});
+      const [loading, setLoading] = useState(false);
+
+      const year = currentDate.getFullYear();
+      const month = currentDate.getMonth();
+
+      useEffect(() => {
+        async function loadCalendarData() {
+          if (!user) return;
+          setLoading(true);
+          try {
+            const checkInMap = await window.goalService.fetchCalendarCheckIns(user.id, year, month);
+            setDbCheckIns(checkInMap);
+          } catch (err) {
+            console.error("[CalendarView] Error:", err.message);
+          } finally {
+            setLoading(false);
+          }
+        }
+        loadCalendarData();
+      }, [user, year, month]);
+
+      const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+      const daysOfWeek = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+      const firstDay = new Date(year, month, 1).getDay();
+      const daysInMonth = new Date(year, month + 1, 0).getDate();
+      const today = new Date();
+
+      const cells = [];
+      for (let i = 0; i < firstDay; i++) cells.push({ empty: true });
+      for (let day = 1; day <= daysInMonth; day++) {
+        const dStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+        const isCompleted = !!dbCheckIns[dStr];
+        const isToday = (day === today.getDate() && month === today.getMonth() && year === today.getFullYear());
+        const isPastMissed = !isCompleted && !isToday && new Date(dStr) < today;
+        cells.push({ day, dateStr: dStr, isCompleted, isToday, isPastMissed });
+      }
+
+      return (
+        <div>
+          <div className="top-bar">
+            <div>
+              <h1 style={{ fontSize: '1.8rem' }}>Calendar Progress Heatmap</h1>
+              <p style={{ color: 'var(--text-muted)', fontSize: '0.95rem' }}>Real check-in records fetched directly from your `daily_checkins` database table.</p>
+            </div>
+            <div className="badge badge-flame" style={{ padding: '8px 16px', fontSize: '0.85rem' }}>🔥 {streak.current_streak || 0} Days Active Streak</div>
+          </div>
+          <div className="glass-card" style={{ padding: 32 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+                <h2 style={{ fontSize: '1.4rem' }}>{monthNames[month]} {year}</h2>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <button className="btn btn-secondary btn-sm" onClick={() => setCurrentDate(new Date(year, month - 1, 1))}>← Prev</button>
+                  <button className="btn btn-secondary btn-sm" onClick={() => setCurrentDate(new Date(year, month + 1, 1))}>Next →</button>
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 16, fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span style={{ width: 12, height: 12, borderRadius: 3, background: 'rgba(245, 158, 11, 0.6)' }}></span> Checked In</span>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span style={{ width: 12, height: 12, borderRadius: 3, background: 'rgba(239, 68, 68, 0.25)', border: '1px solid rgba(239, 68, 68, 0.4)' }}></span> Missed</span>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span style={{ width: 12, height: 12, borderRadius: 3, border: '2px solid var(--primary)' }}></span> Today</span>
+              </div>
+            </div>
+
+            {loading ? <window.LoadingSpinner message="Querying check-ins from database..." /> : (
+              <div className="calendar-grid">
+                {daysOfWeek.map((d, i) => <div key={i} className="calendar-day-header">{d}</div>)}
+                {cells.map((cell, idx) => {
+                  if (cell.empty) return <div key={idx} className="calendar-day-cell empty"></div>;
+                  return (
+                    <div key={idx} className={`calendar-day-cell ${cell.isCompleted ? 'flame' : ''}`} style={{ border: cell.isToday ? '2px solid var(--primary)' : undefined, background: cell.isPastMissed ? 'rgba(239, 68, 68, 0.08)' : undefined, borderColor: cell.isPastMissed ? 'rgba(239, 68, 68, 0.2)' : undefined }}>
+                      <span>{cell.day}</span>
+                      {cell.isCompleted && <span style={{ fontSize: '0.75rem', marginTop: 2 }}>🔥</span>}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    };
+
+    window.StatsView = function() {
+      const { getStats, streak, dataLoading } = window.useGoals();
+      const stats = getStats();
+
+      const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+      const weeklyData = days.map((day, idx) => {
+        const relativeFactor = Math.min(10, Math.max(1, Math.round((stats.completedSubtasks * (idx + 1)) / 7)));
+        const pct = Math.min(100, Math.max(10, Math.round((relativeFactor / (stats.totalSubtasks || 5)) * 100)));
+        return { day, count: relativeFactor, heightPct: pct };
+      });
+
+      return (
+        <div>
+          <div className="top-bar">
+            <div>
+              <h1 style={{ fontSize: '1.8rem' }}>Statistics & Analytics</h1>
+              <p style={{ color: 'var(--text-muted)', fontSize: '0.95rem' }}>Live performance metrics aggregated from your Supabase database records.</p>
+            </div>
+          </div>
+          {dataLoading ? <window.LoadingSpinner message="Calculating database analytics..." /> : (
+            <>
+              <div className="stats-grid" style={{ marginBottom: 32 }}>
+                <div className="glass-card" style={{ padding: 28 }}>
+                  <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Goal Completion Rate</p>
+                  <h2 style={{ fontSize: '2.4rem', margin: '8px 0' }} className="gradient-text">{stats.completionPercentage}%</h2>
+                  <div className="progress-bar-bg" style={{ margin: '8px 0 0' }}><div className="progress-bar-fill" style={{ width: `${stats.completionPercentage}%` }}></div></div>
+                </div>
+                <div className="glass-card" style={{ padding: 28 }}>
+                  <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Subtasks Checked Off</p>
+                  <h2 style={{ fontSize: '2.4rem', margin: '8px 0' }}>{stats.completedSubtasks} <span style={{ fontSize: '1rem', color: 'var(--text-muted)' }}>/ {stats.totalSubtasks}</span></h2>
+                  <p style={{ fontSize: '0.8rem', color: 'var(--success)' }}>✓ Synced with Supabase</p>
+                </div>
+                <div className="glass-card" style={{ padding: 28 }}>
+                  <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Fire Streak Record</p>
+                  <h2 style={{ fontSize: '2.4rem', margin: '8px 0' }} className="gradient-flame">🔥 {streak.longest_streak || 0} Days</h2>
+                  <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Current Active: {streak.current_streak || 0} Days</p>
+                </div>
+              </div>
+              <div className="glass-card" style={{ padding: 32 }}>
+                <h3 style={{ fontSize: '1.2rem', marginBottom: 8 }}>Weekly Activity Trend</h3>
+                <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: 20 }}>Relative subtask activity distribution based on active goals:</p>
+                <div className="bar-chart-container">
+                  {weeklyData.map((item, idx) => (
+                    <div key={idx} className="chart-bar-group">
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-subtle)' }}>{item.count}</span>
+                      <div className="chart-bar-track"><div className="chart-bar-fill" style={{ height: `${item.heightPct}%` }}></div></div>
+                      <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)' }}>{item.day}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      );
+    };
+
+    window.ProfileView = function() {
+      const { user } = window.useAuth();
+      const { profile, streak, getStats, updateUserProfile, feedbackBanner, errorBanner } = window.useGoals();
+      const stats = getStats();
+      const initialName = profile?.full_name || user?.user_metadata?.full_name || user?.email?.split('@')[0] || '';
+      const [nameInput, setNameInput] = useState(initialName);
+      const [isEditing, setIsEditing] = useState(false);
+      const [saving, setSaving] = useState(false);
+      const email = user?.email || 'N/A';
+      const joinDate = user?.created_at ? new Date(user.created_at).toLocaleDateString() : 'Today';
+
+      const handleUpdateName = async (e) => {
+        e.preventDefault();
+        if (!nameInput.trim()) return;
+        setSaving(true);
+        await updateUserProfile(nameInput.trim());
+        setSaving(false);
+        setIsEditing(false);
+      };
+
+      const badges = [
+        { title: 'Habit Starter', desc: 'Completed 1st daily check-in', icon: '⚡', unlocked: (streak.current_streak > 0 || streak.longest_streak > 0) },
+        { title: '7-Day Streak Warrior', desc: 'Reached a 7-day fire streak', icon: '🔥', unlocked: streak.current_streak >= 7 || streak.longest_streak >= 7 },
+        { title: 'Goal Crusher', desc: 'Created goals in database', icon: '🎯', unlocked: stats.totalGoals > 0 },
+        { title: 'Supabase Scholar', desc: 'Connected to Supabase PostgreSQL', icon: '🎓', unlocked: true }
+      ];
+
+      return (
+        <div>
+          <div className="top-bar">
+            <div>
+              <h1 style={{ fontSize: '1.8rem' }}>Profile & Achievements</h1>
+              <p style={{ color: 'var(--text-muted)', fontSize: '0.95rem' }}>User information and milestones loaded from Supabase backend.</p>
+            </div>
+          </div>
+
+          {errorBanner && <div className="btn-danger" style={{ padding: 12, borderRadius: 8, marginBottom: 20, fontSize: '0.85rem' }}>⚠️ {errorBanner}</div>}
+          {feedbackBanner && <div className="badge badge-success" style={{ padding: '10px 16px', borderRadius: 8, marginBottom: 20, fontSize: '0.9rem', width: '100%', display: 'flex', justifyContent: 'center' }}>{feedbackBanner}</div>}
+
+          <div style={{ display: 'grid', gridTemplateColumns: '340px 1fr', gap: 28 }}>
+            <div className="glass-card" style={{ padding: 32, textAlign: 'center' }}>
+              <div className="avatar" style={{ width: 80, height: 80, fontSize: '2rem', margin: '0 auto 16px' }}>{initialName ? initialName.charAt(0).toUpperCase() : 'U'}</div>
+
+              {!isEditing ? (
+                <div>
+                  <h2 style={{ fontSize: '1.4rem', marginBottom: 4 }}>{initialName || 'Scholar'}</h2>
+                  <button className="btn btn-secondary btn-sm" onClick={() => { setNameInput(initialName); setIsEditing(true); }} style={{ margin: '8px 0 16px' }}>✏️ Edit Name</button>
+                </div>
+              ) : (
+                <form onSubmit={handleUpdateName} style={{ marginBottom: 16 }}>
+                  <input type="text" className="form-input" value={nameInput} onChange={(e) => setNameInput(e.target.value)} style={{ textAlign: 'center', marginBottom: 8 }} required />
+                  <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
+                    <button type="submit" className="btn btn-primary btn-sm" disabled={saving}>{saving ? 'Saving...' : 'Save'}</button>
+                    <button type="button" className="btn btn-secondary btn-sm" onClick={() => setIsEditing(false)}>Cancel</button>
+                  </div>
+                </form>
+              )}
+
+              <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: 20 }}>{email}</p>
+              <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: 16, textAlign: 'left', display: 'flex', flexDirection: 'column', gap: 10, fontSize: '0.85rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--text-muted)' }}>🔥 Current Streak:</span><span style={{ fontWeight: 700 }}>{streak.current_streak || 0} Days</span></div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--text-muted)' }}>⚡ Longest Streak:</span><span style={{ fontWeight: 700 }}>{streak.longest_streak || 0} Days</span></div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--text-muted)' }}>🎯 Total Goals:</span><span style={{ fontWeight: 700 }}>{stats.totalGoals}</span></div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--text-muted)' }}>📌 Tasks Completed:</span><span style={{ fontWeight: 700 }}>{stats.completedTasks} / {stats.totalTasks}</span></div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--text-muted)' }}>📅 Joined Date:</span><span>{joinDate}</span></div>
+              </div>
+            </div>
+
+            <div className="glass-card" style={{ padding: 32 }}>
+              <h3 style={{ fontSize: '1.25rem', marginBottom: 20 }}>Achievement Badges</h3>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16 }}>
+                {badges.map((b, i) => (
+                  <div key={i} style={{ padding: 20, borderRadius: 'var(--radius-sm)', background: b.unlocked ? 'rgba(99, 102, 241, 0.1)' : 'rgba(255, 255, 255, 0.02)', border: '1px solid', borderColor: b.unlocked ? 'rgba(99, 102, 241, 0.3)' : 'var(--border-color)', opacity: b.unlocked ? 1 : 0.5 }}>
+                    <div style={{ fontSize: '2rem', marginBottom: 8 }}>{b.icon}</div>
+                    <div style={{ fontWeight: 700, fontSize: '0.95rem' }}>{b.title}</div>
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: 4 }}>{b.desc}</div>
+                    {b.unlocked ? <span className="badge badge-success" style={{ marginTop: 10 }}>Unlocked</span> : <span className="badge" style={{ marginTop: 10, background: 'rgba(255, 255, 255, 0.05)', color: 'var(--text-subtle)' }}>Locked</span>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    };
+
+    // --- 4. Main App Root Component ---
+    function AppContent() {
+      const { authView, setAuthView, loading } = window.useAuth();
+      const [activeTab, setActiveTab] = useState('home');
+
+      useEffect(() => {
+        if (window.lucide) {
+          window.lucide.createIcons();
+        }
+      }, [authView, activeTab, loading]);
+
+      if (loading) {
+        return (
+          <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-dark)' }}>
+            <window.LoadingSpinner message="Authenticating session with Supabase..." />
+          </div>
+        );
+      }
+
+      if (authView === 'landing') {
+        return (
+          <div className="app-container">
+            <window.Header onNavigateAuth={(mode) => setAuthView(mode)} />
+            <window.HeroSection onNavigateAuth={(mode) => setAuthView(mode)} />
+            <window.FeaturesSection />
+            <window.MotivationSection />
+            <window.CompoundingSection />
+            <window.FinalCtaSection onNavigateAuth={(mode) => setAuthView(mode)} />
+          </div>
+        );
+      }
+
+      if (authView === 'login' || authView === 'signup') {
+        return <window.AuthPage mode={authView} onBackToLanding={() => setAuthView('landing')} />;
+      }
+
+      return (
+        <div className="dashboard-layout">
+          <window.Sidebar activeTab={activeTab} setActiveTab={setActiveTab} />
+          <main className="dashboard-main">
+            {activeTab === 'home' && <window.DashboardHome setActiveTab={setActiveTab} />}
+            {activeTab === 'goals' && <window.GoalManager />}
+            {activeTab === 'checkin' && <window.DailyCheckIn />}
+            {activeTab === 'calendar' && <window.CalendarView />}
+            {activeTab === 'stats' && <window.StatsView />}
+            {activeTab === 'profile' && <window.ProfileView />}
+          </main>
+        </div>
+      );
+    }
+
+    function App() {
+      return (
+        <window.AuthProvider>
+          <window.GoalProvider>
+            <AppContent />
+          </window.GoalProvider>
+        </window.AuthProvider>
+      );
+    }
+
+    const rootElement = document.getElementById('root');
+    if (rootElement) {
+      const root = ReactDOM.createRoot(rootElement);
+      root.render(<App />);
+    }
+  </script>
 </body>
 </html>
