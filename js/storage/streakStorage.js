@@ -1,6 +1,7 @@
 /**
  * ============================================================================
- * Streak Storage Module (Daily Check-in Validation & Fire Streak Math)
+ * Streak Storage Module (Redesigned Daily Check-in & Fire Streak Engine)
+ * Handles explicit check-in verification, date math, and status queries.
  * ============================================================================
  */
 
@@ -14,13 +15,35 @@ window.streakStorage = {
   },
 
   /**
-   * Execute Daily Check-in with Task Completion Verification
+   * Check if today's date has already been checked in
+   */
+  isTodayCheckedIn() {
+    const store = window.storageManager.getStore();
+    const todayStr = new Date().toISOString().split('T')[0];
+    const streak = store.streak || {};
+    const calendarHistory = store.calendarHistory || {};
+
+    return streak.last_checkin_date === todayStr || !!calendarHistory[todayStr];
+  },
+
+  /**
+   * Execute Daily Check-in with strict validation
    */
   processCheckIn() {
     const store = window.storageManager.getStore();
-    const goals = store.goals || [];
+    const todayStr = new Date().toISOString().split('T')[0];
 
-    // Gather all subtasks
+    // 1. Verify if already checked in today
+    if (this.isTodayCheckedIn()) {
+      return {
+        success: false,
+        info: "You've already checked in today.",
+        streak: store.streak
+      };
+    }
+
+    // 2. Gather all subtasks and verify completion
+    const goals = store.goals || [];
     const subtasks = [];
     goals.forEach(g => {
       (g.tasks || []).forEach(t => {
@@ -30,32 +53,25 @@ window.streakStorage = {
       });
     });
 
-    // 1. Verify if user has subtasks and if ALL subtasks are completed
-    if (subtasks.length > 0) {
-      const allDone = subtasks.every(st => st.completed);
-      if (!allDone) {
-        return {
-          success: false,
-          error: "Complete all today's tasks before checking in."
-        };
-      }
-    }
-
-    const todayStr = new Date().toISOString().split('T')[0];
-    const currentStreak = store.streak || { current_streak: 0, longest_streak: 0, last_checkin_date: null };
-
-    // 2. Check if user already checked in today
-    if (currentStreak.last_checkin_date === todayStr) {
+    if (subtasks.length === 0) {
       return {
         success: false,
-        info: "You have already completed today's check-in! 🔥",
-        streak: currentStreak
+        error: "No tasks scheduled for today."
+      };
+    }
+
+    const allDone = subtasks.every(st => st.completed);
+    if (!allDone) {
+      return {
+        success: false,
+        error: "Finish all required tasks before checking in."
       };
     }
 
     // 3. Calculate Date Difference Math
+    const currentStreakRecord = store.streak || { current_streak: 0, longest_streak: 0, last_checkin_date: null };
     let newCurrent = 1;
-    const lastDateStr = currentStreak.last_checkin_date;
+    const lastDateStr = currentStreakRecord.last_checkin_date;
 
     if (lastDateStr) {
       const todayDate = new Date(todayStr);
@@ -64,15 +80,15 @@ window.streakStorage = {
       const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
       if (diffDays === 1) {
-        newCurrent = (currentStreak.current_streak || 0) + 1;
+        newCurrent = (currentStreakRecord.current_streak || 0) + 1;
       } else {
-        newCurrent = 1; // Missed day resets streak
+        newCurrent = 1; // Streak resets if day missed
       }
     } else {
       newCurrent = 1;
     }
 
-    const newLongest = Math.max(newCurrent, currentStreak.longest_streak || 0);
+    const newLongest = Math.max(newCurrent, currentStreakRecord.longest_streak || 0);
 
     const updatedStreak = {
       current_streak: newCurrent,
@@ -90,7 +106,7 @@ window.streakStorage = {
 
     return {
       success: true,
-      message: "Daily Check-in Recorded! 🔥 Streak: " + newCurrent + " Days!",
+      message: "Check-in Recorded! 🔥 Streak: " + newCurrent + " Days!",
       streak: updatedStreak
     };
   }

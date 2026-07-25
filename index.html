@@ -63,6 +63,7 @@
     window.GoalProvider = function({ children }) {
       const [goals, setGoals] = useState([]);
       const [streak, setStreak] = useState({ current_streak: 0, longest_streak: 0, last_checkin_date: null });
+      const [isTodayCheckedIn, setIsTodayCheckedIn] = useState(false);
       const [calendarHistory, setCalendarHistory] = useState({});
       const [profile, setProfile] = useState({ name: 'Scholar Student' });
       const [settings, setSettings] = useState({ onboardingCompleted: false });
@@ -73,6 +74,7 @@
       const syncWithStorage = useCallback(() => {
         setGoals(window.goalStorage.getGoals());
         setStreak(window.streakStorage.getStreak());
+        setIsTodayCheckedIn(window.streakStorage.isTodayCheckedIn());
         setCalendarHistory(window.calendarStorage.getCalendarHistory());
         setProfile(window.settingsStorage.getProfile());
         const store = window.storageManager.getStore();
@@ -134,19 +136,19 @@
         syncWithStorage();
       };
 
-      // Daily Check-in with strict task completion validation
+      // Daily Check-in Execution
       const triggerDailyCheckIn = () => {
         setErrorBanner(null);
         const res = window.streakStorage.processCheckIn();
 
         if (!res.success && res.error) {
-          setErrorBanner("⚠️ " + res.error);
+          setErrorBanner(res.error);
           setTimeout(() => setErrorBanner(null), 4000);
           return;
         }
 
         if (!res.success && res.info) {
-          setFeedbackBanner("⚡ " + res.info);
+          setFeedbackBanner(res.info);
           setTimeout(() => setFeedbackBanner(null), 3500);
           return;
         }
@@ -156,7 +158,7 @@
             window.confetti({ particleCount: 120, spread: 80, origin: { y: 0.6 } });
           }
           syncWithStorage();
-          setFeedbackBanner("🔥 " + res.message);
+          setFeedbackBanner(res.message);
           setTimeout(() => setFeedbackBanner(null), 3500);
         }
       };
@@ -176,7 +178,6 @@
         syncWithStorage();
       };
 
-      // Intentional Load Demo Data Button
       const handleLoadDemoData = () => {
         window.settingsStorage.loadDemoData();
         syncWithStorage();
@@ -249,6 +250,7 @@
         <GoalContext.Provider value={{
           goals,
           streak,
+          isTodayCheckedIn,
           calendarHistory,
           profile,
           settings,
@@ -544,7 +546,7 @@
 
     // --- 6. Dashboard Views ---
     window.DashboardHome = function({ setActiveTab }) {
-      const { streak, profile, getStats, triggerDailyCheckIn, feedbackBanner, errorBanner } = window.useGoals();
+      const { streak, isTodayCheckedIn, profile, getStats, triggerDailyCheckIn, feedbackBanner, errorBanner } = window.useGoals();
       const stats = getStats();
       const displayName = profile.name || 'Scholar Student';
 
@@ -564,7 +566,7 @@
             </div>
           </div>
 
-          {errorBanner && <div className="btn-danger" style={{ padding: 12, borderRadius: 8, marginBottom: 20, fontSize: '0.85rem' }}>{errorBanner}</div>}
+          {errorBanner && <div className="btn-danger" style={{ padding: 12, borderRadius: 8, marginBottom: 20, fontSize: '0.85rem' }}>⚠️ {errorBanner}</div>}
           {feedbackBanner && <div className="badge badge-success" style={{ padding: '10px 16px', borderRadius: 10, marginBottom: 20, fontSize: '0.9rem', width: '100%', display: 'flex', justifyContent: 'center' }}>{feedbackBanner}</div>}
 
           <div className="streak-widget">
@@ -573,12 +575,24 @@
               <div>
                 <div style={{ fontSize: '0.85rem', color: '#fcd34d', fontWeight: 600 }}>CURRENT FIRE STREAK</div>
                 <div style={{ fontSize: '2.2rem', fontWeight: 800, lineHeight: 1 }} className="gradient-flame">{streak.current_streak || 0} Days Active</div>
-                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: 4 }}>Longest Streak Record: {streak.longest_streak || 0} Days ⚡</div>
+                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: 6, display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <span>Longest Streak Record: {streak.longest_streak || 0} Days ⚡</span>
+                  <span className={`badge ${isTodayCheckedIn ? 'badge-success' : 'badge-primary'}`} style={{ padding: '4px 10px', fontSize: '0.75rem' }}>
+                    {isTodayCheckedIn ? '✅ Checked In' : '○ Not Checked In'}
+                  </span>
+                </div>
               </div>
             </div>
-            <button className="btn btn-primary" onClick={triggerDailyCheckIn} style={{ background: 'linear-gradient(135deg, #f59e0b 0%, #ef4444 100%)', boxShadow: 'var(--shadow-flame)' }}>
-              <span>Daily Check-in 🔥</span>
-            </button>
+
+            {isTodayCheckedIn ? (
+              <button className="btn btn-secondary" disabled style={{ opacity: 0.75, cursor: 'not-allowed' }}>
+                <span>✓ Checked In Today</span>
+              </button>
+            ) : (
+              <button className="btn btn-primary" onClick={() => setActiveTab('checkin')} style={{ background: 'linear-gradient(135deg, #f59e0b 0%, #ef4444 100%)', boxShadow: 'var(--shadow-flame)' }}>
+                <span>Go to Check-in →</span>
+              </button>
+            )}
           </div>
 
           <div className="metrics-grid">
@@ -595,7 +609,7 @@
               <div className="metric-icon" style={{ background: 'rgba(236, 72, 153, 0.15)', color: '#f472b6' }}><i data-lucide="trending-up" style={{ width: 24, height: 24 }}></i></div>
             </div>
             <div className="glass-card metric-card">
-              <div className="metric-info"><p>Longest Streak</p><h3>{stats.longestStreak} Days</h3></div>
+              <div className="metric-info"><p>Today's Check-in Status</p><h3 style={{ fontSize: '1.2rem', marginTop: 4 }}>{isTodayCheckedIn ? '✅ Checked In' : '○ Not Checked In'}</h3></div>
               <div className="metric-icon" style={{ background: 'rgba(245, 158, 11, 0.15)', color: '#fcd34d' }}><i data-lucide="award" style={{ width: 24, height: 24 }}></i></div>
             </div>
           </div>
@@ -760,7 +774,7 @@
             <form onSubmit={handleCreateTask}>
               <div className="form-group">
                 <label>Task Title</label>
-                <input type="text" className="form-input" placeholder="e.g. Implement Modular Storage Architecture" value={taskTitle} onChange={(e) => setTaskTitle(e.target.value)} required />
+                <input type="text" className="form-input" placeholder="e.g. Daily Check-in Redesign" value={taskTitle} onChange={(e) => setTaskTitle(e.target.value)} required />
               </div>
               <button type="submit" className="btn btn-primary" style={{ width: '100%', marginTop: 12 }}>Save Task</button>
             </form>
@@ -770,7 +784,7 @@
             <form onSubmit={handleCreateSubtask}>
               <div className="form-group">
                 <label>Subtask Title</label>
-                <input type="text" className="form-input" placeholder="e.g. crypto.randomUUID integration" value={subtaskTitle} onChange={(e) => setSubtaskTitle(e.target.value)} required />
+                <input type="text" className="form-input" placeholder="e.g. Explicit Complete Today button" value={subtaskTitle} onChange={(e) => setSubtaskTitle(e.target.value)} required />
               </div>
               <button type="submit" className="btn btn-primary" style={{ width: '100%', marginTop: 12 }}>Save Subtask</button>
             </form>
@@ -780,7 +794,8 @@
     };
 
     window.DailyCheckIn = function() {
-      const { goals, streak, toggleSubtask, triggerDailyCheckIn, feedbackBanner, errorBanner } = window.useGoals();
+      const { goals, streak, isTodayCheckedIn, toggleSubtask, triggerDailyCheckIn, feedbackBanner, errorBanner } = window.useGoals();
+
       const todaySubtasks = [];
       goals.forEach(goal => {
         (goal.tasks || []).forEach(task => {
@@ -789,24 +804,68 @@
           });
         });
       });
+
       const completedCount = todaySubtasks.filter(item => item.subtask.completed).length;
+      const allTasksCompleted = todaySubtasks.length > 0 && completedCount === todaySubtasks.length;
+
+      // Determine Check-in Button State
+      let buttonState = 'DISABLED'; // 'CHECKED_IN' | 'ZERO_TASKS' | 'INCOMPLETE' | 'READY'
+      let buttonText = 'Complete Today';
+      let messageNotice = '';
+
+      if (isTodayCheckedIn) {
+        buttonState = 'CHECKED_IN';
+        buttonText = '✓ Checked In';
+        messageNotice = "You've already checked in today.";
+      } else if (todaySubtasks.length === 0) {
+        buttonState = 'ZERO_TASKS';
+        buttonText = 'Complete Today';
+        messageNotice = 'No tasks scheduled for today.';
+      } else if (!allTasksCompleted) {
+        buttonState = 'INCOMPLETE';
+        buttonText = 'Complete Today';
+        messageNotice = 'Finish all required tasks before checking in.';
+      } else {
+        buttonState = 'READY';
+        buttonText = 'Complete Today 🔥';
+        messageNotice = 'All required tasks finished! Press Complete Today to claim your streak.';
+      }
 
       return (
         <div>
           <div className="top-bar">
             <div>
               <h1 style={{ fontSize: '1.8rem' }}>Daily Check-in</h1>
-              <p style={{ color: 'var(--text-muted)', fontSize: '0.95rem' }}>Complete today's tasks before submitting your check-in!</p>
+              <p style={{ color: 'var(--text-muted)', fontSize: '0.95rem' }}>Complete today's required tasks to enable manual check-in!</p>
             </div>
-            <button className="btn btn-primary" onClick={triggerDailyCheckIn} style={{ background: 'linear-gradient(135deg, #f59e0b 0%, #ef4444 100%)', boxShadow: 'var(--shadow-flame)' }}>
-              <span>Submit Today's Check-in 🔥</span>
-            </button>
+            
+            {/* Dynamic Check-in Button */}
+            {buttonState === 'CHECKED_IN' ? (
+              <button className="btn btn-secondary" disabled style={{ opacity: 0.8, cursor: 'not-allowed', background: 'rgba(16, 185, 129, 0.2)', borderColor: '#10b981', color: '#6ee7b7' }}>
+                <span>✓ Checked In</span>
+              </button>
+            ) : buttonState === 'READY' ? (
+              <button className="btn btn-primary" onClick={triggerDailyCheckIn} style={{ background: 'linear-gradient(135deg, #f59e0b 0%, #ef4444 100%)', boxShadow: 'var(--shadow-flame)' }}>
+                <span>Complete Today 🔥</span>
+              </button>
+            ) : (
+              <button className="btn btn-secondary" disabled style={{ opacity: 0.5, cursor: 'not-allowed' }}>
+                <span>Complete Today</span>
+              </button>
+            )}
           </div>
 
-          {errorBanner && <div className="btn-danger" style={{ padding: 12, borderRadius: 8, marginBottom: 20, fontSize: '0.85rem' }}>{errorBanner}</div>}
+          {errorBanner && <div className="btn-danger" style={{ padding: 12, borderRadius: 8, marginBottom: 20, fontSize: '0.85rem' }}>⚠️ {errorBanner}</div>}
           {feedbackBanner && <div className="badge badge-success" style={{ padding: '10px 16px', borderRadius: 8, marginBottom: 20, fontSize: '0.9rem', width: '100%', display: 'flex', justifyContent: 'center' }}>{feedbackBanner}</div>}
 
-          <div className="glass-card" style={{ padding: 24, marginBottom: 32, display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderColor: 'rgba(245, 158, 11, 0.4)' }}>
+          {messageNotice && (
+            <div className={`badge ${buttonState === 'CHECKED_IN' ? 'badge-success' : buttonState === 'READY' ? 'badge-primary' : 'badge-flame'}`} style={{ padding: '12px 20px', borderRadius: 10, marginBottom: 24, fontSize: '0.95rem', width: '100%', display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span>{buttonState === 'CHECKED_IN' ? '✅' : buttonState === 'READY' ? '⚡' : 'ℹ️'}</span>
+              <span>{messageNotice}</span>
+            </div>
+          )}
+
+          <div className="glass-card" style={{ padding: 24, marginBottom: 32, display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderColor: isTodayCheckedIn ? 'rgba(16, 185, 129, 0.4)' : 'rgba(245, 158, 11, 0.4)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
               <div style={{ fontSize: '2.5rem' }}>🔥</div>
               <div>
@@ -814,12 +873,22 @@
                 <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>{completedCount} of {todaySubtasks.length} subtasks completed locally</div>
               </div>
             </div>
-            <div className="badge badge-flame" style={{ padding: '8px 16px', fontSize: '0.85rem' }}>Longest Record: {streak.longest_streak || 0} Days</div>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6 }}>
+              <span className={`badge ${isTodayCheckedIn ? 'badge-success' : 'badge-primary'}`} style={{ padding: '6px 14px', fontSize: '0.8rem' }}>
+                {isTodayCheckedIn ? '✅ Checked In Today' : '○ Not Checked In Today'}
+              </span>
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-subtle)' }}>Longest Record: {streak.longest_streak || 0} Days</span>
+            </div>
           </div>
 
           <div className="glass-card" style={{ padding: 28 }}>
             <h3 style={{ fontSize: '1.2rem', marginBottom: 20 }}>Today's Action Checklist</h3>
-            {todaySubtasks.length === 0 ? <p style={{ color: 'var(--text-muted)' }}>No subtasks created yet. Add goals and subtasks in Goal Management first.</p> : (
+            {todaySubtasks.length === 0 ? (
+              <div style={{ padding: '24px 0', textAlign: 'center', color: 'var(--text-muted)' }}>
+                <p style={{ fontSize: '1.05rem', marginBottom: 8 }}>No tasks scheduled for today.</p>
+                <p style={{ fontSize: '0.85rem' }}>Create goals and add subtasks in Goal Management to schedule daily tasks.</p>
+              </div>
+            ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                 {todaySubtasks.map((item, idx) => (
                   <div key={idx} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 18px', background: item.subtask.completed ? 'rgba(16, 185, 129, 0.08)' : 'rgba(255, 255, 255, 0.03)', border: '1px solid', borderColor: item.subtask.completed ? 'rgba(16, 185, 129, 0.3)' : 'var(--border-color)', borderRadius: 'var(--radius-sm)' }}>
@@ -868,7 +937,7 @@
           <div className="top-bar">
             <div>
               <h1 style={{ fontSize: '1.8rem' }}>Calendar Progress Heatmap</h1>
-              <p style={{ color: 'var(--text-muted)', fontSize: '0.95rem' }}>Visual monthly activity log saved locally on your device.</p>
+              <p style={{ color: 'var(--text-muted)', fontSize: '0.95rem' }}>Visual monthly activity log marked upon successful daily check-in.</p>
             </div>
             <div className="badge badge-flame" style={{ padding: '8px 16px', fontSize: '0.85rem' }}>🔥 {streak.current_streak || 0} Days Active Streak</div>
           </div>
@@ -906,7 +975,7 @@
     };
 
     window.StatsView = function() {
-      const { getStats, streak } = window.useGoals();
+      const { getStats, streak, isTodayCheckedIn } = window.useGoals();
       const stats = getStats();
 
       const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -936,9 +1005,9 @@
               <p style={{ fontSize: '0.8rem', color: 'var(--success)' }}>✓ Saved locally</p>
             </div>
             <div className="glass-card" style={{ padding: 28 }}>
-              <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Fire Streak Record</p>
-              <h2 style={{ fontSize: '2.4rem', margin: '8px 0' }} className="gradient-flame">🔥 {streak.longest_streak || 0} Days</h2>
-              <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Current Active: {streak.current_streak || 0} Days</p>
+              <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Today's Check-in</p>
+              <h2 style={{ fontSize: '1.8rem', margin: '12px 0 8px' }}>{isTodayCheckedIn ? '✅ Checked In' : '○ Not Checked In'}</h2>
+              <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Streak Record: {streak.longest_streak || 0} Days</p>
             </div>
           </div>
           <div className="glass-card" style={{ padding: 32 }}>
@@ -959,7 +1028,7 @@
     };
 
     window.ProfileView = function() {
-      const { profile, streak, getStats, updateUserProfile, feedbackBanner } = window.useGoals();
+      const { profile, streak, isTodayCheckedIn, getStats, updateUserProfile, feedbackBanner } = window.useGoals();
       const stats = getStats();
       const initialName = profile?.name || 'Scholar Student';
       const [nameInput, setNameInput] = useState(initialName);
@@ -1012,6 +1081,7 @@
               <p style={{ color: '#6ee7b7', fontSize: '0.85rem', marginBottom: 20 }}>🛡️ Privacy Mode (Device Only)</p>
               <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: 16, textAlign: 'left', display: 'flex', flexDirection: 'column', gap: 10, fontSize: '0.85rem' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--text-muted)' }}>🔥 Current Streak:</span><span style={{ fontWeight: 700 }}>{streak.current_streak || 0} Days</span></div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--text-muted)' }}>📅 Today's Status:</span><span style={{ fontWeight: 700 }}>{isTodayCheckedIn ? '✅ Checked In' : '○ Not Checked In'}</span></div>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--text-muted)' }}>⚡ Longest Streak:</span><span style={{ fontWeight: 700 }}>{streak.longest_streak || 0} Days</span></div>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--text-muted)' }}>🎯 Total Goals:</span><span style={{ fontWeight: 700 }}>{stats.totalGoals}</span></div>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--text-muted)' }}>📌 Tasks Completed:</span><span style={{ fontWeight: 700 }}>{stats.completedTasks} / {stats.totalTasks}</span></div>
@@ -1061,7 +1131,7 @@
             </div>
           </div>
 
-          {errorBanner && <div className="btn-danger" style={{ padding: 12, borderRadius: 8, marginBottom: 20, fontSize: '0.85rem' }}>{errorBanner}</div>}
+          {errorBanner && <div className="btn-danger" style={{ padding: 12, borderRadius: 8, marginBottom: 20, fontSize: '0.85rem' }}>⚠️ {errorBanner}</div>}
           {feedbackBanner && <div className="badge badge-success" style={{ padding: '10px 16px', borderRadius: 8, marginBottom: 20, fontSize: '0.9rem', width: '100%', display: 'flex', justifyContent: 'center' }}>{feedbackBanner}</div>}
 
           {/* Section 1: Data Management & Load Demo Data */}
