@@ -4,9 +4,9 @@
  * ============================================================================
  */
 
-// Environment configuration keys (Passed via window or .env)
-window.SUPABASE_URL = window.VITE_SUPABASE_URL || "https://your-supabase-project.supabase.co";
-window.SUPABASE_ANON_KEY = window.VITE_SUPABASE_ANON_KEY || "your-supabase-anon-key";
+// Environment configuration keys
+window.SUPABASE_URL = window.VITE_SUPABASE_URL || "https://igpyaffhsoxtzmupnekw.supabase.co";
+window.SUPABASE_ANON_KEY = window.VITE_SUPABASE_ANON_KEY || "sb_publishable_v3TnyglbE7OMqGSEOe5kLw_JoEWTAnh";
 
 /**
  * Check if valid Supabase URL & Key are set
@@ -37,13 +37,13 @@ if (window.supabaseJs && window.isSupabaseConfigured()) {
         }
       }
     );
-    console.log("[Supabase Client] Successfully initialized connection to:", window.SUPABASE_URL);
+    console.log("[Supabase Client] Successfully connected to:", window.SUPABASE_URL);
   } catch (err) {
     console.error("[Supabase Client] Initialization failure:", err.message);
   }
 } else {
   console.warn(
-    "[Supabase Client] Credentials missing. Please update window.SUPABASE_URL and window.SUPABASE_ANON_KEY in js/services/supabaseClient.js or set environment variables."
+    "[Supabase Client] Credentials missing. Please update window.SUPABASE_URL and window.SUPABASE_ANON_KEY."
   );
 }
 
@@ -53,7 +53,7 @@ if (window.supabaseJs && window.isSupabaseConfigured()) {
 window.getSupabaseClient = function() {
   if (!window.supabase) {
     throw new Error(
-      "Supabase client is not connected. Please add your VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to js/services/supabaseClient.js or your environment configuration."
+      "Supabase client is not connected. Please check your Supabase URL and Anon key in js/services/supabaseClient.js."
     );
   }
   return window.supabase;
