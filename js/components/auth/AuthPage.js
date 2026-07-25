@@ -1,24 +1,26 @@
 /**
- * Authentication Page Component (Phase 2 - Production Supabase Auth)
+ * Authentication Page Component (Production Ready & Reliable)
  */
 
 const { useState } = React;
 
 window.AuthPage = function({ mode = 'login', onBackToLanding }) {
-  const { login, signup, loginWithGoogle, loading } = window.useAuth();
+  const { login, signup, loginWithGoogle, loading, setAuthView } = window.useAuth();
 
   const [isSignUp, setIsSignUp] = useState(mode === 'signup');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
+  const [infoMsg, setInfoMsg] = useState('');
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setErrorMsg('');
+    setInfoMsg('');
 
     if (!email || !password) {
-      setErrorMsg('Please enter both email and password.');
+      setErrorMsg('Please fill in both email and password.');
       return;
     }
 
@@ -28,15 +30,26 @@ window.AuthPage = function({ mode = 'login', onBackToLanding }) {
         return;
       }
       const res = await signup(email, password, fullName);
-      if (!res.success) setErrorMsg(res.error || 'Failed to create account.');
+      if (res.requireEmailConfirmation) {
+        setInfoMsg(res.message);
+        setIsSignUp(false); // Switch to login tab so user can log in once confirmed
+      } else if (!res.success) {
+        setErrorMsg(res.error || 'Account creation failed. Please check your credentials.');
+      } else if (res.message) {
+        setInfoMsg(res.message);
+        setIsSignUp(false);
+      }
     } else {
       const res = await login(email, password);
-      if (!res.success) setErrorMsg(res.error || 'Invalid credentials. Please try again.');
+      if (!res.success) {
+        setErrorMsg(res.error || 'Sign in failed. Please check your email and password.');
+      }
     }
   };
 
   const handleGoogleLogin = async () => {
     setErrorMsg('');
+    setInfoMsg('');
     const res = await loginWithGoogle();
     if (!res.success) setErrorMsg(res.error || 'Google login failed.');
   };
@@ -44,7 +57,7 @@ window.AuthPage = function({ mode = 'login', onBackToLanding }) {
   return (
     <div className="auth-container">
       <div className="glass-card auth-wrapper">
-        {/* Left Side: Quote Banner */}
+        {/* Left Side: Quote Overlay */}
         <div className="auth-quote-side">
           <div>
             <div className="logo-container" style={{ marginBottom: 40 }}>
@@ -79,8 +92,16 @@ window.AuthPage = function({ mode = 'login', onBackToLanding }) {
             <p>{isSignUp ? 'Start tracking your goals in seconds' : 'Sign in to access your dashboard & streak'}</p>
           </div>
 
+          {/* Info Banner */}
+          {infoMsg && (
+            <div className="badge badge-success" style={{ padding: 12, borderRadius: 8, marginBottom: 16, fontSize: '0.85rem', width: '100%', display: 'block', textWrap: 'wrap', lineHeight: 1.4 }}>
+              ℹ️ {infoMsg}
+            </div>
+          )}
+
+          {/* Error Banner */}
           {errorMsg && (
-            <div className="btn-danger" style={{ padding: 12, borderRadius: 8, marginBottom: 16, fontSize: '0.85rem' }}>
+            <div className="btn-danger" style={{ padding: 12, borderRadius: 8, marginBottom: 16, fontSize: '0.85rem', lineHeight: 1.4 }}>
               ⚠️ {errorMsg}
             </div>
           )}
@@ -139,7 +160,7 @@ window.AuthPage = function({ mode = 'login', onBackToLanding }) {
 
           <div className="divider">OR</div>
 
-          {/* Continue with Google OAuth Button */}
+          {/* Continue with Google Button */}
           <button 
             className="btn btn-google"
             onClick={handleGoogleLogin}
@@ -158,12 +179,12 @@ window.AuthPage = function({ mode = 'login', onBackToLanding }) {
             {isSignUp ? (
               <span>
                 Already have an account?{' '}
-                <span className="auth-link" onClick={() => setIsSignUp(false)}>Sign In</span>
+                <span className="auth-link" onClick={() => { setIsSignUp(false); setErrorMsg(''); setInfoMsg(''); }}>Sign In</span>
               </span>
             ) : (
               <span>
                 Don't have an account?{' '}
-                <span className="auth-link" onClick={() => setIsSignUp(true)}>Sign Up</span>
+                <span className="auth-link" onClick={() => { setIsSignUp(true); setErrorMsg(''); setInfoMsg(''); }}>Sign Up</span>
               </span>
             )}
           </div>

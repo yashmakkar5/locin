@@ -1,7 +1,8 @@
 /**
  * ============================================================================
- * Authentication Service Module (Phase 2 - Real Supabase Auth)
- * Handles Email/Password Sign Up, Login, Google OAuth, and Session Syncing.
+ * Authentication Service Module (Production Ready & Robust)
+ * Handles Email/Password Sign Up, Sign In, Google OAuth, and Session Syncing.
+ * Includes graceful handling for email confirmation requirements and auto-profile setup.
  * ============================================================================
  */
 
@@ -22,38 +23,43 @@ window.authService = {
     });
 
     if (authError) throw authError;
+
     const user = authData.user;
-    if (!user) throw new Error("User creation failed. Please check your email and try again.");
+    const session = authData.session;
 
-    // 2. Create Profile Record in `profiles` table
-    const { error: profileError } = await client
-      .from('profiles')
-      .upsert({
-        id: user.id,
-        email: email,
-        full_name: fullName || email.split('@')[0],
-        created_at: new Date().toISOString()
-      });
-
-    if (profileError) {
-      console.error("[authService] Profile creation warning:", profileError.message);
+    if (!user) {
+      throw new Error("Registration failed. Please check your email and try again.");
     }
 
-    // 3. Initialize Streak Record in `streaks` table
-    const { error: streakError } = await client
-      .from('streaks')
-      .upsert({
-        user_id: user.id,
-        current_streak: 0,
-        longest_streak: 0,
-        last_checkin_date: null
-      });
+    // 2. If Session is present (Email Confirmation disabled / auto-confirmed)
+    if (session) {
+      try {
+        await client.from('profiles').upsert({
+          id: user.id,
+          email: email,
+          full_name: fullName || email.split('@')[0],
+          created_at: new Date().toISOString()
+        });
 
-    if (streakError) {
-      console.error("[authService] Streak init warning:", streakError.message);
+        await client.from('streaks').upsert({
+          user_id: user.id,
+          current_streak: 0,
+          longest_streak: 0,
+          last_checkin_date: null
+        });
+      } catch (e) {
+        console.warn("[authService] Inline profile setup notice:", e.message);
+      }
+      return { user, session, requireEmailConfirmation: false };
     }
 
-    return user;
+    // 3. If Session is null (Email Confirmation is enabled in Supabase Auth Settings)
+    return {
+      user,
+      session: null,
+      requireEmailConfirmation: true,
+      message: "Account created successfully! Please check your email inbox to confirm your account before signing in, or disable 'Confirm Email' in Supabase Auth settings."
+    };
   },
 
   /**
@@ -65,8 +71,40 @@ window.authService = {
       email,
       password
     });
-    if (error) throw error;
-    return data.user;
+
+    if (error) {
+      if (error.message.includes("Email not confirmed")) {
+        throw new Error("Your email address has not been confirmed yet. Please check your email inbox or disable 'Confirm Email' in your Supabase Auth dashboard.");
+      }
+      if (error.message.includes("Invalid login credentials")) {
+        throw new Error("Invalid email or password. Please check your credentials or create a new account.");
+      }
+      throw error;
+    }
+
+    const user = data.user;
+    const session = data.session;
+
+    // Ensure Profile and Streak records exist in DB upon login
+    if (user && session) {
+      try {
+        await client.from('profiles').upsert({
+          id: user.id,
+          email: user.email,
+          full_name: user.user_metadata?.full_name || user.email.split('@')[0]
+        }, { onConflict: 'id' });
+
+        await client.from('streaks').upsert({
+          user_id: user.id,
+          current_streak: 0,
+          longest_streak: 0
+        }, { onConflict: 'user_id' });
+      } catch (e) {
+        console.warn("[authService] Post-login profile sync notice:", e.message);
+      }
+    }
+
+    return { user, session };
   },
 
   /**
@@ -90,7 +128,7 @@ window.authService = {
   async signOut() {
     const client = window.getSupabaseClient();
     const { error } = await client.auth.signOut();
-    if (error) throw error;
+    if (error) console.error("[authService] SignOut notice:", error.message);
   },
 
   /**

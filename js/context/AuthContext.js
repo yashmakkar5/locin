@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * AuthContext Provider (Phase 2 - Real Supabase Auth)
+ * AuthContext Provider (Production Ready)
  * Handles session listener, protected route redirects, signup, login, logout.
  * ============================================================================
  */
@@ -15,21 +15,21 @@ window.AuthProvider = function({ children }) {
   const [loading, setLoading] = useState(true);
   const [authView, setAuthView] = useState('landing'); // 'landing' | 'login' | 'signup' | 'dashboard'
 
-  // Initialize & Listen to Supabase Auth State Changes
   useEffect(() => {
     let mounted = true;
 
     async function initAuth() {
       if (!window.isSupabaseConfigured()) {
-        setLoading(false);
+        if (mounted) setLoading(false);
         return;
       }
 
       try {
         const client = window.getSupabaseClient();
         
-        // 1. Get Initial Session
+        // 1. Fetch current active session
         const { data: { session: initialSession } } = await client.auth.getSession();
+        
         if (mounted) {
           if (initialSession?.user) {
             setSession(initialSession);
@@ -38,23 +38,24 @@ window.AuthProvider = function({ children }) {
           } else {
             setSession(null);
             setUser(null);
-            setAuthView('landing');
+            // Retain requested authView if user clicked login/signup
+            setAuthView(prev => (prev === 'dashboard' ? 'landing' : prev));
           }
         }
 
-        // 2. Register Auth Change Listener
+        // 2. Listen to authentication changes
         const { data: { subscription } } = client.auth.onAuthStateChange(
-          async (event, currentSession) => {
-            if (mounted) {
-              if (currentSession?.user) {
-                setSession(currentSession);
-                setUser(currentSession.user);
-                setAuthView('dashboard');
-              } else {
-                setSession(null);
-                setUser(null);
-                setAuthView('landing');
-              }
+          (event, currentSession) => {
+            if (!mounted) return;
+
+            if (currentSession?.user) {
+              setSession(currentSession);
+              setUser(currentSession.user);
+              setAuthView('dashboard');
+            } else if (event === 'SIGNED_OUT') {
+              setSession(null);
+              setUser(null);
+              setAuthView('landing');
             }
           }
         );
@@ -63,7 +64,7 @@ window.AuthProvider = function({ children }) {
           subscription?.unsubscribe();
         };
       } catch (err) {
-        console.error("[AuthContext] Initialization error:", err.message);
+        console.error("[AuthContext] Initialization notice:", err.message);
       } finally {
         if (mounted) setLoading(false);
       }
@@ -79,10 +80,14 @@ window.AuthProvider = function({ children }) {
   const login = async (email, password) => {
     setLoading(true);
     try {
-      const loggedUser = await window.authService.signIn(email, password);
-      setUser(loggedUser);
-      setAuthView('dashboard');
-      return { success: true };
+      const res = await window.authService.signIn(email, password);
+      if (res?.user) {
+        setUser(res.user);
+        setSession(res.session);
+        setAuthView('dashboard');
+        return { success: true };
+      }
+      return { success: false, error: "Login failed. Please try again." };
     } catch (err) {
       return { success: false, error: err.message };
     } finally {
@@ -93,10 +98,24 @@ window.AuthProvider = function({ children }) {
   const signup = async (email, password, fullName) => {
     setLoading(true);
     try {
-      const newUser = await window.authService.signUp(email, password, fullName);
-      setUser(newUser);
-      setAuthView('dashboard');
-      return { success: true };
+      const res = await window.authService.signUp(email, password, fullName);
+      
+      if (res.requireEmailConfirmation) {
+        return { 
+          success: false, 
+          requireEmailConfirmation: true, 
+          message: res.message 
+        };
+      }
+
+      if (res.user && res.session) {
+        setUser(res.user);
+        setSession(res.session);
+        setAuthView('dashboard');
+        return { success: true };
+      }
+
+      return { success: true, message: "Account created! You can now sign in." };
     } catch (err) {
       return { success: false, error: err.message };
     } finally {
@@ -121,7 +140,7 @@ window.AuthProvider = function({ children }) {
     try {
       await window.authService.signOut();
     } catch (err) {
-      console.error("[AuthContext] Logout error:", err.message);
+      console.error("[AuthContext] Logout notice:", err.message);
     } finally {
       setUser(null);
       setSession(null);
