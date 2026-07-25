@@ -1,13 +1,13 @@
 /**
  * ============================================================================
- * Goal Storage Module (Goal Level 1 CRUD Operations)
- * Provides both window.goalStorage and window.goalService interfaces.
+ * Goal Storage Module (Goal Level 1 CRUD & Completion Controls)
+ * Supports completedAt timestamps, goal completion toggles, and reopen actions.
  * ============================================================================
  */
 
 window.goalStorage = {
   /**
-   * Fetch all goals
+   * Fetch active or completed goals
    */
   getGoals() {
     const store = window.storageManager.getStore();
@@ -24,18 +24,62 @@ window.goalStorage = {
       title: title.trim(),
       category: category.trim(),
       color,
+      completed: false,
+      completedAt: null,
       created_at: new Date().toISOString(),
       tasks: []
     };
 
-    const updatedGoals = [newGoal, ...store.goals];
-    store.goals = updatedGoals;
+    store.goals = [newGoal, ...store.goals];
     window.storageManager.saveStore(store);
     return newGoal;
   },
 
   createGoal(title, category = 'General', color = '#6366f1') {
     return this.addGoal(title, category, color);
+  },
+
+  /**
+   * Mark a Goal as Complete
+   */
+  markGoalComplete(goalId) {
+    const store = window.storageManager.getStore();
+    let completedGoalItem = null;
+
+    store.goals = store.goals.map(g => {
+      if (g.id === goalId) {
+        completedGoalItem = {
+          ...g,
+          completed: true,
+          completedAt: new Date().toISOString()
+        };
+        return completedGoalItem;
+      }
+      return g;
+    });
+
+    window.storageManager.saveStore(store);
+    return completedGoalItem;
+  },
+
+  /**
+   * Mark a Goal as In Progress / Reopen
+   */
+  reopenGoal(goalId) {
+    const store = window.storageManager.getStore();
+
+    store.goals = store.goals.map(g => {
+      if (g.id === goalId) {
+        return {
+          ...g,
+          completed: false,
+          completedAt: null
+        };
+      }
+      return g;
+    });
+
+    window.storageManager.saveStore(store);
   },
 
   /**
@@ -49,5 +93,4 @@ window.goalStorage = {
   }
 };
 
-// Service Alias
 window.goalService = window.goalStorage;

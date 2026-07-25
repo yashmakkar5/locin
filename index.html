@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Locin – Privacy-First Goal Tracker & Habit Building Platform</title>
-  <meta name="description" content="Small actions. Massive results. Locin helps you set goals, build habits, track streaks, and achieve compound success 100% privately on your device.">
+  <title>Locin – Personal Performance Operating System</title>
+  <meta name="description" content="Small actions. Massive results. Locin helps you set goals, build habits, track streaks, and measure your LOCIN Performance Index (LPI) 100% privately on your device.">
   
   <!-- Google Fonts: Outfit & Inter -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -27,7 +27,7 @@
 <body>
   <div id="root"></div>
 
-  <!-- Modular Storage Architecture (Decoupled Storage Layer) -->
+  <!-- Modular Storage Architecture & Analytics Engine -->
   <script src="./js/storage/storageManager.js"></script>
   <script src="./js/storage/goalStorage.js"></script>
   <script src="./js/storage/taskStorage.js"></script>
@@ -35,12 +35,13 @@
   <script src="./js/storage/streakStorage.js"></script>
   <script src="./js/storage/calendarStorage.js"></script>
   <script src="./js/storage/settingsStorage.js"></script>
+  <script src="./js/storage/lpiCalculator.js"></script>
 
   <!-- React Application Scripts -->
   <script type="text/babel">
     const { useState, useEffect, useContext, createContext, useCallback } = React;
 
-    // --- 1. Navigation / View Router Context ---
+    // --- 1. Navigation Context ---
     const AuthContext = createContext();
 
     window.AuthProvider = function({ children }) {
@@ -57,7 +58,7 @@
       return useContext(AuthContext);
     };
 
-    // --- 2. Goal & Storage Reactive Context ---
+    // --- 2. Goal & Performance Context ---
     const GoalContext = createContext();
 
     window.GoalProvider = function({ children }) {
@@ -67,30 +68,62 @@
       const [calendarHistory, setCalendarHistory] = useState({});
       const [profile, setProfile] = useState({ name: 'Scholar Student' });
       const [settings, setSettings] = useState({ onboardingCompleted: false });
+      const [lpiMetrics, setLpiMetrics] = useState({});
       const [feedbackBanner, setFeedbackBanner] = useState(null);
       const [errorBanner, setErrorBanner] = useState(null);
 
-      // Re-read storage and sync state immediately
+      // Cascade & Celebration Modals
+      const [cascadeModalInfo, setCascadeModalInfo] = useState(null); // { type: 'TASK'|'GOAL', title, goalId, taskId }
+      const [celebrationGoal, setCelebrationGoal] = useState(null);
+
+      // Sync React state with storage
       const syncWithStorage = useCallback(() => {
-        setGoals(window.goalStorage.getGoals());
+        const currentGoals = window.goalStorage.getGoals();
+        setGoals(currentGoals);
         setStreak(window.streakStorage.getStreak());
         setIsTodayCheckedIn(window.streakStorage.isTodayCheckedIn());
         setCalendarHistory(window.calendarStorage.getCalendarHistory());
         setProfile(window.settingsStorage.getProfile());
+
         const store = window.storageManager.getStore();
         setSettings(store.settings || {});
+
+        // Recalculate LPI
+        const analytics = window.lpiCalculator.calculate(store);
+        setLpiMetrics(analytics);
       }, []);
 
       useEffect(() => {
         syncWithStorage();
       }, [syncWithStorage]);
 
-      // Goal CRUD
+      // Goal Controls
       const addGoal = (title, category, color) => {
         setErrorBanner(null);
         window.goalStorage.addGoal(title, category, color);
         syncWithStorage();
         setFeedbackBanner("🎯 Goal created successfully!");
+        setTimeout(() => setFeedbackBanner(null), 3000);
+      };
+
+      const markGoalComplete = (goalId, triggerCelebration = true) => {
+        setErrorBanner(null);
+        const completedGoal = window.goalStorage.markGoalComplete(goalId);
+        syncWithStorage();
+
+        if (triggerCelebration && completedGoal) {
+          if (window.confetti) {
+            window.confetti({ particleCount: 140, spread: 90, origin: { y: 0.5 } });
+          }
+          setCelebrationGoal(completedGoal);
+        }
+      };
+
+      const markGoalInProgress = (goalId) => {
+        setErrorBanner(null);
+        window.goalStorage.reopenGoal(goalId);
+        syncWithStorage();
+        setFeedbackBanner("Goal marked in progress.");
         setTimeout(() => setFeedbackBanner(null), 3000);
       };
 
@@ -102,7 +135,7 @@
         setTimeout(() => setFeedbackBanner(null), 3000);
       };
 
-      // Task CRUD
+      // Task Controls
       const addTask = (goalId, title) => {
         setErrorBanner(null);
         window.taskStorage.addTask(goalId, title);
@@ -111,13 +144,39 @@
         setTimeout(() => setFeedbackBanner(null), 3000);
       };
 
+      const markTaskComplete = (goalId, taskId) => {
+        setErrorBanner(null);
+        window.taskStorage.markTaskComplete(goalId, taskId);
+        syncWithStorage();
+
+        // Check if all tasks under goal are now completed
+        const updatedGoals = window.goalStorage.getGoals();
+        const targetGoal = updatedGoals.find(g => g.id === goalId);
+        if (targetGoal && !targetGoal.completed && targetGoal.tasks.length > 0) {
+          const allTasksDone = targetGoal.tasks.every(t => t.completed);
+          if (allTasksDone) {
+            setCascadeModalInfo({
+              type: 'GOAL',
+              title: targetGoal.title,
+              goalId: targetGoal.id
+            });
+          }
+        }
+      };
+
+      const markTaskInProgress = (goalId, taskId) => {
+        setErrorBanner(null);
+        window.taskStorage.markTaskInProgress(goalId, taskId);
+        syncWithStorage();
+      };
+
       const deleteTask = (goalId, taskId) => {
         setErrorBanner(null);
         window.taskStorage.deleteTask(goalId, taskId);
         syncWithStorage();
       };
 
-      // Subtask CRUD
+      // Subtask Controls
       const addSubtask = (goalId, taskId, title) => {
         setErrorBanner(null);
         window.subtaskStorage.addSubtask(goalId, taskId, title);
@@ -126,8 +185,18 @@
 
       const toggleSubtask = (goalId, taskId, subtaskId) => {
         setErrorBanner(null);
-        window.subtaskStorage.toggleSubtask(goalId, taskId, subtaskId);
+        const res = window.subtaskStorage.toggleSubtask(goalId, taskId, subtaskId);
         syncWithStorage();
+
+        // Cascade Check: If all subtasks under task completed
+        if (res.allSubtasksDone && res.task && !res.task.completed) {
+          setCascadeModalInfo({
+            type: 'TASK',
+            title: res.task.title,
+            goalId,
+            taskId
+          });
+        }
       };
 
       const deleteSubtask = (goalId, taskId, subtaskId) => {
@@ -136,7 +205,7 @@
         syncWithStorage();
       };
 
-      // Daily Check-in Execution
+      // Daily Check-in
       const triggerDailyCheckIn = () => {
         setErrorBanner(null);
         const res = window.streakStorage.processCheckIn();
@@ -163,7 +232,7 @@
         }
       };
 
-      // Settings & Profile
+      // Profile & Settings
       const updateUserProfile = (name) => {
         window.settingsStorage.updateProfile(name);
         syncWithStorage();
@@ -213,39 +282,6 @@
         setTimeout(() => setFeedbackBanner(null), 3500);
       };
 
-      // Stats Calculation
-      const getStats = () => {
-        let totalGoals = goals.length;
-        let totalTasks = 0;
-        let completedTasks = 0;
-        let totalSubtasks = 0;
-        let completedSubtasks = 0;
-
-        goals.forEach(g => {
-          (g.tasks || []).forEach(t => {
-            totalTasks++;
-            if (t.completed) completedTasks++;
-            (t.subtasks || []).forEach(st => {
-              totalSubtasks++;
-              if (st.completed) completedSubtasks++;
-            });
-          });
-        });
-
-        const completionPercentage = totalSubtasks > 0 ? Math.round((completedSubtasks / totalSubtasks) * 100) : 0;
-
-        return {
-          totalGoals,
-          totalTasks,
-          completedTasks,
-          totalSubtasks,
-          completedSubtasks,
-          completionPercentage,
-          currentStreak: streak.current_streak || 0,
-          longestStreak: streak.longest_streak || 0
-        };
-      };
-
       return (
         <GoalContext.Provider value={{
           goals,
@@ -254,11 +290,20 @@
           calendarHistory,
           profile,
           settings,
+          lpiMetrics,
           feedbackBanner,
           errorBanner,
+          cascadeModalInfo,
+          setCascadeModalInfo,
+          celebrationGoal,
+          setCelebrationGoal,
           addGoal,
+          markGoalComplete,
+          markGoalInProgress,
           deleteGoal,
           addTask,
+          markTaskComplete,
+          markTaskInProgress,
           deleteTask,
           addSubtask,
           toggleSubtask,
@@ -269,8 +314,7 @@
           handleLoadDemoData,
           exportBackupData,
           importBackupData,
-          resetAllData,
-          getStats
+          resetAllData
         }}>
           {children}
         </GoalContext.Provider>
@@ -292,24 +336,96 @@
             <div style={{ fontSize: '3rem', marginBottom: 12 }}>🛡️</div>
             <h2 style={{ fontSize: '1.8rem', marginBottom: 12 }}>Welcome to Locin</h2>
             <p style={{ color: 'var(--text-muted)', fontSize: '0.95rem', lineHeight: 1.6, marginBottom: 24 }}>
-              Locin is a <strong>100% Privacy-First, Local-First</strong> productivity app. Your goals, tasks, fire streaks, and statistics are stored exclusively on your device.
+              Locin is a <strong>100% Privacy-First Personal Performance OS</strong>. Track your LOCIN Performance Index (LPI), complete goals, and build streaks 100% locally.
             </p>
 
             <div style={{ textAlign: 'left', background: 'rgba(255, 255, 255, 0.03)', padding: 20, borderRadius: 'var(--radius-sm)', marginBottom: 24, display: 'flex', flexDirection: 'column', gap: 10, fontSize: '0.85rem' }}>
-              <div>⚡ <strong>No Signup or Password Required</strong></div>
-              <div>💾 <strong>Auto-Saved to Browser Storage</strong></div>
-              <div>📥 <strong>Backup & Restore via JSON files anytime</strong></div>
+              <div>⚡ <strong>No Signup Required</strong></div>
+              <div>📈 <strong>Live LPI Performance Gauge (0-100)</strong></div>
+              <div>📥 <strong>Backup & Restore via JSON anytime</strong></div>
             </div>
 
             <button className="btn btn-primary" style={{ width: '100%', padding: '14px' }} onClick={completeOnboarding}>
-              Get Started (Local Mode) 🚀
+              Launch Performance OS 🚀
             </button>
           </div>
         </div>
       );
     };
 
-    // --- 4. Reusable UI Components ---
+    // --- 4. Cascade & Celebration Modals ---
+    window.CascadeModal = function() {
+      const { cascadeModalInfo, setCascadeModalInfo, markTaskComplete, markGoalComplete } = window.useGoals();
+      if (!cascadeModalInfo) return null;
+
+      const isTask = cascadeModalInfo.type === 'TASK';
+
+      const handleConfirm = () => {
+        if (isTask) {
+          markTaskComplete(cascadeModalInfo.goalId, cascadeModalInfo.taskId);
+        } else {
+          markGoalComplete(cascadeModalInfo.goalId);
+        }
+        setCascadeModalInfo(null);
+      };
+
+      return (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0, 0, 0, 0.75)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '20px' }}>
+          <div className="glass-card" style={{ maxWidth: '480px', width: '100%', padding: '32px', textAlign: 'center' }}>
+            <div style={{ fontSize: '2.5rem', marginBottom: 12 }}>⚡</div>
+            <h3 style={{ fontSize: '1.4rem', marginBottom: 12 }}>
+              {isTask ? "All subtasks completed!" : "Everything is finished!"}
+            </h3>
+            <p style={{ color: 'var(--text-muted)', fontSize: '0.95rem', marginBottom: 24 }}>
+              {isTask 
+                ? `Mark task "${cascadeModalInfo.title}" as completed?`
+                : `Mark goal "${cascadeModalInfo.title}" as completed?`}
+            </p>
+            <div style={{ display: 'flex', gap: 12, justifyContent: 'center' }}>
+              <button className="btn btn-secondary btn-sm" onClick={() => setCascadeModalInfo(null)}>Not Yet</button>
+              <button className="btn btn-primary btn-sm" onClick={handleConfirm}>Yes, Mark Completed ✓</button>
+            </div>
+          </div>
+        </div>
+      );
+    };
+
+    window.CelebrationModal = function() {
+      const { celebrationGoal, setCelebrationGoal } = window.useGoals();
+      if (!celebrationGoal) return null;
+
+      let taskCount = (celebrationGoal.tasks || []).length;
+      let subtaskCount = 0;
+      (celebrationGoal.tasks || []).forEach(t => subtaskCount += (t.subtasks || []).length);
+
+      const completedDate = celebrationGoal.completedAt 
+        ? new Date(celebrationGoal.completedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+        : new Date().toLocaleDateString();
+
+      return (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0, 0, 0, 0.85)', backdropFilter: 'blur(10px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '20px' }}>
+          <div className="glass-card" style={{ maxWidth: '500px', width: '100%', padding: '36px', textAlign: 'center', borderColor: '#f59e0b', boxShadow: '0 0 40px rgba(245, 158, 11, 0.3)' }}>
+            <div style={{ fontSize: '3.5rem', marginBottom: 8 }}>🏆</div>
+            <span className="badge badge-flame" style={{ marginBottom: 12 }}>Milestone Achieved</span>
+            <h2 style={{ fontSize: '2rem', marginBottom: 8 }} className="gradient-text">Goal Completed!</h2>
+            <h3 style={{ fontSize: '1.25rem', color: '#fff', marginBottom: 20 }}>"{celebrationGoal.title}"</h3>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, background: 'rgba(255, 255, 255, 0.03)', padding: 16, borderRadius: 'var(--radius-sm)', marginBottom: 24, textAlign: 'left', fontSize: '0.85rem' }}>
+              <div><span style={{ color: 'var(--text-muted)' }}>Completion Date:</span> <br /><strong>{completedDate}</strong></div>
+              <div><span style={{ color: 'var(--text-muted)' }}>Category:</span> <br /><strong>{celebrationGoal.category}</strong></div>
+              <div><span style={{ color: 'var(--text-muted)' }}>Tasks Finished:</span> <br /><strong>{taskCount} Tasks</strong></div>
+              <div><span style={{ color: 'var(--text-muted)' }}>Subtasks Finished:</span> <br /><strong>{subtaskCount} Subtasks</strong></div>
+            </div>
+
+            <button className="btn btn-primary" style={{ width: '100%', padding: '12px' }} onClick={() => setCelebrationGoal(null)}>
+              Continue Executing 👑
+            </button>
+          </div>
+        </div>
+      );
+    };
+
+    // --- 5. Reusable UI Components ---
     window.Header = function({ onNavigateAuth }) {
       return (
         <header className="landing-header">
@@ -346,10 +462,10 @@
       return (
         <section className="hero-section">
           <div className="hero-pill">
-            <span className="badge badge-primary"><i data-lucide="shield-check" style={{ width: 14, height: 14 }}></i> 100% Privacy-First • No Account Needed</span>
+            <span className="badge badge-primary"><i data-lucide="shield-check" style={{ width: 14, height: 14 }}></i> Personal Performance OS • No Account Needed</span>
           </div>
           <h1 className="hero-title">Small actions. <br /><span className="gradient-text">Massive results.</span></h1>
-          <p className="hero-subtitle">Transform your ambitions into daily compounding victories. Set goals, check in, and grow your 🔥 fire streak 100% privately on your device.</p>
+          <p className="hero-subtitle">Transform your ambitions into daily compounding victories. Set goals, track your LOCIN Performance Index (LPI), and grow your fire streak 100% privately.</p>
           <div className="hero-cta-group">
             <button className="btn btn-primary" onClick={() => onNavigateAuth('dashboard')}><span>Launch Application</span><i data-lucide="arrow-right" style={{ width: 18, height: 18 }}></i></button>
           </div>
@@ -375,11 +491,11 @@
       const features = [
         { icon: 'shield', title: '100% Privacy First', desc: 'No accounts, no cloud databases. Your data never leaves your device.' },
         { icon: 'target', title: '3-Tier Goal Management', desc: 'Organize Goals into Tasks, and break Tasks into Subtasks.' },
-        { icon: 'check-circle-2', title: 'Daily Check-ins', desc: 'Satisfying check-ins with celebratory confetti bursts.' },
+        { icon: 'trending-up', title: 'LPI Performance Gauge', desc: 'LOCIN Performance Index (0-100) analytics with dynamic feedback.' },
         { icon: 'flame', title: 'Duolingo Fire Streak', desc: 'Build unstoppable momentum with visual 🔥 streak tracking.' },
         { icon: 'calendar', title: 'Calendar Heatmap', desc: 'Visualize your monthly activity with crisp color indicators.' },
-        { icon: 'download', title: 'JSON Backup & Restore', desc: 'Export all data to a JSON file and restore anytime.' },
-        { icon: 'layout-dashboard', title: 'Personalized Dashboard', desc: 'A clean glassmorphic command center tailored for maximum focus.' }
+        { icon: 'award', title: 'Goal Completion History', desc: 'Archive completed goals, view milestone stats, or reopen anytime.' },
+        { icon: 'download', title: 'JSON Backup & Restore', desc: 'Export all data to a JSON file and restore anytime.' }
       ];
       return (
         <section id="features" className="section-container">
@@ -480,7 +596,7 @@
               </div>
               <div className="glass-card" style={{ padding: 28 }}>
                 <h4 style={{ fontSize: '1.1rem', marginBottom: 8, color: 'var(--secondary)' }}>📈 3. Clear Visual Feedback</h4>
-                <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>Calendar heatmaps and statistics charts give you immediate proof of your progress every week.</p>
+                <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>Calendar heatmaps and performance indices give you immediate proof of your progress every week.</p>
               </div>
             </div>
           </div>
@@ -496,7 +612,7 @@
             <h2 style={{ fontSize: '2.5rem', lineHeight: 1.2 }}>Start Building <span className="gradient-text">Better Habits Today</span></h2>
             <p style={{ color: 'var(--text-muted)', maxWidth: 550 }}>Use Locin to track daily goals, build fire streaks, and compound success 100% privately on your device.</p>
             <button className="btn btn-primary" style={{ padding: '14px 32px', fontSize: '1.05rem' }} onClick={() => onNavigateAuth('dashboard')}>
-              <span>Launch App (Local Mode)</span>
+              <span>Launch Application</span>
               <i data-lucide="arrow-right" style={{ width: 20, height: 20 }}></i>
             </button>
           </div>
@@ -504,7 +620,7 @@
       );
     };
 
-    // --- 5. Sidebar ---
+    // --- 6. Sidebar ---
     window.Sidebar = function({ activeTab, setActiveTab }) {
       const { setAuthView } = window.useAuth();
       const navItems = [
@@ -512,7 +628,7 @@
         { id: 'goals', label: 'Goals', icon: 'target' },
         { id: 'checkin', label: 'Daily Check-in', icon: 'check-square' },
         { id: 'calendar', label: 'Calendar', icon: 'calendar' },
-        { id: 'stats', label: 'Statistics', icon: 'bar-chart-3' },
+        { id: 'stats', label: 'Performance OS', icon: 'bar-chart-3' },
         { id: 'profile', label: 'Profile', icon: 'user' },
         { id: 'settings', label: 'Settings & Backup', icon: 'settings' }
       ];
@@ -544,24 +660,24 @@
       );
     };
 
-    // --- 6. Dashboard Views ---
+    // --- 7. Dashboard Views ---
     window.DashboardHome = function({ setActiveTab }) {
-      const { streak, isTodayCheckedIn, profile, getStats, triggerDailyCheckIn, feedbackBanner, errorBanner } = window.useGoals();
-      const stats = getStats();
+      const { streak, isTodayCheckedIn, profile, lpiMetrics, triggerDailyCheckIn, feedbackBanner, errorBanner } = window.useGoals();
       const displayName = profile.name || 'Scholar Student';
+      const score = lpiMetrics.lpiScore || 0;
 
       return (
         <div>
           <div className="top-bar">
             <div>
               <h1 style={{ fontSize: '1.8rem' }}>Welcome back, <span className="gradient-text">{displayName}</span>! 👋</h1>
-              <p style={{ color: 'var(--text-muted)', fontSize: '0.95rem' }}>100% Privacy-First local overview on your device.</p>
+              <p style={{ color: 'var(--text-muted)', fontSize: '0.95rem' }}>Personal Performance OS overview.</p>
             </div>
             <div className="user-profile-badge">
               <div className="avatar">{displayName.charAt(0).toUpperCase()}</div>
               <div>
                 <div style={{ fontWeight: 600, fontSize: '0.85rem' }}>{displayName}</div>
-                <div style={{ fontSize: '0.75rem', color: '#6ee7b7' }}>🛡️ Local Storage</div>
+                <div style={{ fontSize: '0.75rem', color: '#6ee7b7' }}>🛡️ Local Mode</div>
               </div>
             </div>
           </div>
@@ -569,14 +685,53 @@
           {errorBanner && <div className="btn-danger" style={{ padding: 12, borderRadius: 8, marginBottom: 20, fontSize: '0.85rem' }}>⚠️ {errorBanner}</div>}
           {feedbackBanner && <div className="badge badge-success" style={{ padding: '10px 16px', borderRadius: 10, marginBottom: 20, fontSize: '0.9rem', width: '100%', display: 'flex', justifyContent: 'center' }}>{feedbackBanner}</div>}
 
-          <div className="streak-widget">
+          {/* LPI Performance Score Hero Card */}
+          <div className="glass-card" style={{ padding: 32, marginBottom: 28, background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.12) 0%, rgba(236, 72, 153, 0.08) 100%)', borderColor: 'rgba(99, 102, 241, 0.4)' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr', gap: 32, alignItems: 'center' }}>
+              
+              {/* Circular Gauge */}
+              <div style={{ textAlign: 'center', position: 'relative' }}>
+                <svg width="180" height="180" viewBox="0 0 180 180" style={{ transform: 'rotate(-90deg)' }}>
+                  <circle cx="90" cy="90" r="76" stroke="rgba(255, 255, 255, 0.1)" strokeWidth="14" fill="transparent" />
+                  <circle cx="90" cy="90" r="76" stroke="url(#lpiGrad)" strokeWidth="14" fill="transparent" strokeDasharray="477" strokeDashoffset={477 - (477 * score) / 100} strokeLinecap="round" style={{ transition: 'stroke-dashoffset 1s ease-in-out' }} />
+                  <defs>
+                    <linearGradient id="lpiGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                      <stop offset="0%" stopColor="#6366f1" />
+                      <stop offset="100%" stopColor="#ec4899" />
+                    </linearGradient>
+                  </defs>
+                </svg>
+                <div style={{ position: 'absolute', top: 0, left: 0, width: 180, height: 180, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+                  <span style={{ fontSize: '2.5rem', fontWeight: 800, lineHeight: 1 }}>{score}</span>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600, marginTop: 4 }}>LPI SCORE</span>
+                </div>
+              </div>
+
+              {/* LPI Text Details */}
+              <div>
+                <span className="badge badge-primary" style={{ marginBottom: 10 }}>LOCIN Performance Index</span>
+                <h2 style={{ fontSize: '1.8rem', marginBottom: 8 }}>{lpiMetrics.tier}</h2>
+                <p style={{ fontSize: '1.05rem', color: 'var(--text-muted)', fontStyle: 'italic', marginBottom: 16 }}>
+                  "{lpiMetrics.quote}"
+                </p>
+                <div style={{ display: 'flex', gap: 16, fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                  <span>Goal Rate: <strong>{lpiMetrics.goalCompletionPct}%</strong></span>
+                  <span>Task Rate: <strong>{lpiMetrics.taskCompletionPct}%</strong></span>
+                  <span>Subtask Rate: <strong>{lpiMetrics.subtaskCompletionPct}%</strong></span>
+                </div>
+              </div>
+
+            </div>
+          </div>
+
+          <div className="streak-widget" style={{ marginBottom: 28 }}>
             <div className="streak-count-display">
               <div className="fire-badge-large">🔥</div>
               <div>
                 <div style={{ fontSize: '0.85rem', color: '#fcd34d', fontWeight: 600 }}>CURRENT FIRE STREAK</div>
                 <div style={{ fontSize: '2.2rem', fontWeight: 800, lineHeight: 1 }} className="gradient-flame">{streak.current_streak || 0} Days Active</div>
                 <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: 6, display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <span>Longest Streak Record: {streak.longest_streak || 0} Days ⚡</span>
+                  <span>Longest Record: {streak.longest_streak || 0} Days ⚡</span>
                   <span className={`badge ${isTodayCheckedIn ? 'badge-success' : 'badge-primary'}`} style={{ padding: '4px 10px', fontSize: '0.75rem' }}>
                     {isTodayCheckedIn ? '✅ Checked In' : '○ Not Checked In'}
                   </span>
@@ -597,41 +752,20 @@
 
           <div className="metrics-grid">
             <div className="glass-card metric-card">
-              <div className="metric-info"><p>Total Goals</p><h3>{stats.totalGoals}</h3></div>
+              <div className="metric-info"><p>Total Goals</p><h3>{lpiMetrics.totalGoals}</h3></div>
               <div className="metric-icon" style={{ background: 'rgba(99, 102, 241, 0.15)', color: '#a5b4fc' }}><i data-lucide="target" style={{ width: 24, height: 24 }}></i></div>
             </div>
             <div className="glass-card metric-card">
-              <div className="metric-info"><p>Tasks Completed</p><h3>{stats.completedTasks} / {stats.totalTasks}</h3></div>
+              <div className="metric-info"><p>Tasks Completed</p><h3>{lpiMetrics.completedTasks} / {lpiMetrics.totalTasks}</h3></div>
               <div className="metric-icon" style={{ background: 'rgba(16, 185, 129, 0.15)', color: '#6ee7b7' }}><i data-lucide="check-circle-2" style={{ width: 24, height: 24 }}></i></div>
             </div>
             <div className="glass-card metric-card">
-              <div className="metric-info"><p>Completion Rate</p><h3>{stats.completionPercentage}%</h3></div>
+              <div className="metric-info"><p>Completion Rate</p><h3>{lpiMetrics.completionRate}%</h3></div>
               <div className="metric-icon" style={{ background: 'rgba(236, 72, 153, 0.15)', color: '#f472b6' }}><i data-lucide="trending-up" style={{ width: 24, height: 24 }}></i></div>
             </div>
             <div className="glass-card metric-card">
-              <div className="metric-info"><p>Today's Check-in Status</p><h3 style={{ fontSize: '1.2rem', marginTop: 4 }}>{isTodayCheckedIn ? '✅ Checked In' : '○ Not Checked In'}</h3></div>
+              <div className="metric-info"><p>Today's Status</p><h3 style={{ fontSize: '1.2rem', marginTop: 4 }}>{isTodayCheckedIn ? '✅ Checked In' : '○ Not Checked In'}</h3></div>
               <div className="metric-icon" style={{ background: 'rgba(245, 158, 11, 0.15)', color: '#fcd34d' }}><i data-lucide="award" style={{ width: 24, height: 24 }}></i></div>
-            </div>
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
-            <div className="glass-card" style={{ padding: 28 }}>
-              <h3 style={{ fontSize: '1.2rem', marginBottom: 16 }}>Today's Completion Progress</h3>
-              <div className="progress-bar-bg"><div className="progress-bar-fill" style={{ width: `${stats.completionPercentage}%` }}></div></div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-                <span>{stats.completedSubtasks} of {stats.totalSubtasks} subtasks checked off</span>
-                <span>{stats.completionPercentage}%</span>
-              </div>
-            </div>
-            <div className="glass-card" style={{ padding: 28, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-              <div>
-                <h3 style={{ fontSize: '1.2rem', marginBottom: 8 }}>Goal Action Center</h3>
-                <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>Create goals, break them into tasks, and backup your data anytime.</p>
-              </div>
-              <div style={{ display: 'flex', gap: 12, marginTop: 16 }}>
-                <button className="btn btn-secondary btn-sm" onClick={() => setActiveTab('goals')}>Manage Goals →</button>
-                <button className="btn btn-secondary btn-sm" onClick={() => setActiveTab('settings')}>Backup & Restore →</button>
-              </div>
             </div>
           </div>
         </div>
@@ -639,7 +773,8 @@
     };
 
     window.GoalManager = function() {
-      const { goals, addGoal, deleteGoal, addTask, deleteTask, addSubtask, toggleSubtask, deleteSubtask } = window.useGoals();
+      const { goals, addGoal, markGoalComplete, markGoalInProgress, deleteGoal, addTask, markTaskComplete, markTaskInProgress, deleteTask, addSubtask, toggleSubtask, deleteSubtask } = window.useGoals();
+      const [viewMode, setViewMode] = useState('active'); // 'active' | 'completed'
       const [isGoalModalOpen, setIsGoalModalOpen] = useState(false);
       const [goalTitle, setGoalTitle] = useState('');
       const [goalCategory, setGoalCategory] = useState('Technology');
@@ -647,6 +782,10 @@
       const [taskTitle, setTaskTitle] = useState('');
       const [subtaskModalInfo, setSubtaskModalInfo] = useState(null);
       const [subtaskTitle, setSubtaskTitle] = useState('');
+
+      const activeGoals = goals.filter(g => !g.completed);
+      const completedGoals = goals.filter(g => g.completed);
+      const displayedGoals = viewMode === 'active' ? activeGoals : completedGoals;
 
       const handleCreateGoal = (e) => {
         e.preventDefault();
@@ -679,20 +818,28 @@
               <h1 style={{ fontSize: '1.8rem' }}>Goal Management</h1>
               <p style={{ color: 'var(--text-muted)', fontSize: '0.95rem' }}>Structure your ambitions: 🎯 Goal → 📌 Task → 🔹 Subtasks</p>
             </div>
-            <button className="btn btn-primary" onClick={() => setIsGoalModalOpen(true)}><i data-lucide="plus" style={{ width: 18, height: 18 }}></i><span>Create New Goal</span></button>
+            <div style={{ display: 'flex', gap: 12 }}>
+              <div style={{ display: 'flex', background: 'rgba(255, 255, 255, 0.05)', padding: 4, borderRadius: 'var(--radius-sm)' }}>
+                <button className={`btn btn-sm ${viewMode === 'active' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setViewMode('active')}>Active ({activeGoals.length})</button>
+                <button className={`btn btn-sm ${viewMode === 'completed' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setViewMode('completed')}>Completed ({completedGoals.length})</button>
+              </div>
+              <button className="btn btn-primary" onClick={() => setIsGoalModalOpen(true)}><i data-lucide="plus" style={{ width: 18, height: 18 }}></i><span>Create New Goal</span></button>
+            </div>
           </div>
 
-          {goals.length === 0 ? (
+          {displayedGoals.length === 0 ? (
             <div className="glass-card" style={{ padding: 50, textAlign: 'center', color: 'var(--text-muted)' }}>
-              <div style={{ fontSize: '3rem', marginBottom: 12 }}>🎯</div>
-              <h3 style={{ fontSize: '1.3rem', color: 'var(--text-main)', marginBottom: 8 }}>No goals created yet</h3>
-              <p style={{ fontSize: '0.95rem', marginBottom: 20, maxWidth: 450, margin: '0 auto 20px' }}>
-                You have zero active goals in storage. Click <strong>"Create New Goal"</strong> to start tracking your first ambition!
+              <div style={{ fontSize: '3rem', marginBottom: 12 }}>{viewMode === 'active' ? '🎯' : '🏆'}</div>
+              <h3 style={{ fontSize: '1.3rem', color: 'var(--text-main)', marginBottom: 8 }}>
+                {viewMode === 'active' ? 'No active goals' : 'No completed goals yet'}
+              </h3>
+              <p style={{ fontSize: '0.95rem', marginBottom: 20 }}>
+                {viewMode === 'active' ? 'Click "Create New Goal" to start tracking your ambitions!' : 'Complete your active goals to populate milestone history here.'}
               </p>
-              <button className="btn btn-primary btn-sm" onClick={() => setIsGoalModalOpen(true)}>+ Create Your First Goal</button>
+              {viewMode === 'active' && <button className="btn btn-primary btn-sm" onClick={() => setIsGoalModalOpen(true)}>+ Create Goal</button>}
             </div>
           ) : (
-            goals.map(goal => {
+            displayedGoals.map(goal => {
               let subtaskCount = 0;
               let doneSubtasks = 0;
               (goal.tasks || []).forEach(t => {
@@ -701,36 +848,55 @@
                   if (st.completed) doneSubtasks++;
                 });
               });
-              const goalPct = subtaskCount > 0 ? Math.round((doneSubtasks / subtaskCount) * 100) : 0;
+              const goalPct = subtaskCount > 0 ? Math.round((doneSubtasks / subtaskCount) * 100) : (goal.completed ? 100 : 0);
 
               return (
-                <div key={goal.id} className="glass-card goal-card">
+                <div key={goal.id} className="glass-card goal-card" style={{ opacity: goal.completed ? 0.9 : 1, borderColor: goal.completed ? '#10b981' : undefined }}>
                   <div className="goal-top">
                     <div className="goal-title-group">
                       <span className="badge badge-primary">{goal.category}</span>
-                      <h2 style={{ fontSize: '1.4rem' }}>🎯 {goal.title}</h2>
+                      {goal.completed && <span className="badge badge-success">✓ Completed Goal</span>}
+                      <h2 style={{ fontSize: '1.4rem', textDecoration: goal.completed ? 'line-through' : 'none' }}>🎯 {goal.title}</h2>
                     </div>
-                    <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-                      <button className="btn btn-secondary btn-sm" onClick={() => setTaskModalGoalId(goal.id)}>+ Add Task</button>
+
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                      {!goal.completed ? (
+                        <>
+                          <button className="btn btn-secondary btn-sm" onClick={() => markGoalComplete(goal.id)}>✓ Mark Complete</button>
+                          <button className="btn btn-secondary btn-sm" onClick={() => setTaskModalGoalId(goal.id)}>+ Task</button>
+                        </>
+                      ) : (
+                        <button className="btn btn-secondary btn-sm" onClick={() => markGoalInProgress(goal.id)}>↺ Reopen Goal</button>
+                      )}
                       <button className="btn btn-danger btn-sm" onClick={() => deleteGoal(goal.id)}>🗑️</button>
                     </div>
                   </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', color: 'var(--text-muted)' }}><span>Goal Progress</span><span>{goalPct}%</span></div>
-                  <div className="progress-bar-bg"><div className="progress-bar-fill" style={{ width: `${goalPct}%` }}></div></div>
+
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                    <span>Goal Completion</span>
+                    <span>{goalPct}%</span>
+                  </div>
+                  <div className="progress-bar-bg"><div className="progress-bar-fill" style={{ width: `${goalPct}%`, background: goal.completed ? '#10b981' : undefined }}></div></div>
 
                   <div className="task-tree">
-                    {(goal.tasks || []).length === 0 ? <div style={{ fontSize: '0.85rem', color: 'var(--text-subtle)', fontStyle: 'italic' }}>No tasks added yet. Click "+ Add Task" above.</div> : (
+                    {(goal.tasks || []).length === 0 ? <div style={{ fontSize: '0.85rem', color: 'var(--text-subtle)', fontStyle: 'italic' }}>No tasks added yet.</div> : (
                       goal.tasks.map(task => (
-                        <div key={task.id} className="task-item">
+                        <div key={task.id} className="task-item" style={{ opacity: task.completed ? 0.8 : 1 }}>
                           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                            <div style={{ fontWeight: 600, fontSize: '1.05rem' }}>📌 {task.title}</div>
-                            <div style={{ display: 'flex', gap: 8 }}>
-                              <button className="btn btn-secondary btn-sm" style={{ padding: '4px 8px', fontSize: '0.75rem' }} onClick={() => setSubtaskModalInfo({ goalId: goal.id, taskId: task.id })}>+ Subtask</button>
+                            <div style={{ fontWeight: 600, fontSize: '1.05rem', textDecoration: task.completed ? 'line-through' : 'none' }}>📌 {task.title}</div>
+                            <div style={{ display: 'flex', gap: 6 }}>
+                              {!task.completed ? (
+                                <button className="btn btn-secondary btn-sm" style={{ padding: '4px 8px', fontSize: '0.75rem' }} onClick={() => markTaskComplete(goal.id, task.id)}>✓ Complete Task</button>
+                              ) : (
+                                <button className="btn btn-secondary btn-sm" style={{ padding: '4px 8px', fontSize: '0.75rem' }} onClick={() => markTaskInProgress(goal.id, task.id)}>↺ Reopen Task</button>
+                              )}
+                              {!goal.completed && <button className="btn btn-secondary btn-sm" style={{ padding: '4px 8px', fontSize: '0.75rem' }} onClick={() => setSubtaskModalInfo({ goalId: goal.id, taskId: task.id })}>+ Subtask</button>}
                               <button className="btn btn-danger btn-sm" style={{ padding: '4px 8px', fontSize: '0.75rem' }} onClick={() => deleteTask(goal.id, task.id)}>✕</button>
                             </div>
                           </div>
+
                           <div className="subtask-tree">
-                            {(task.subtasks || []).length === 0 ? <div style={{ fontSize: '0.8rem', color: 'var(--text-subtle)' }}>No subtasks. Add subtasks to track daily completion.</div> : (
+                            {(task.subtasks || []).length === 0 ? <div style={{ fontSize: '0.8rem', color: 'var(--text-subtle)' }}>No subtasks.</div> : (
                               task.subtasks.map(subtask => (
                                 <div key={subtask.id} className="subtask-item">
                                   <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -774,7 +940,7 @@
             <form onSubmit={handleCreateTask}>
               <div className="form-group">
                 <label>Task Title</label>
-                <input type="text" className="form-input" placeholder="e.g. Daily Check-in Redesign" value={taskTitle} onChange={(e) => setTaskTitle(e.target.value)} required />
+                <input type="text" className="form-input" placeholder="e.g. Implement LPI Performance System" value={taskTitle} onChange={(e) => setTaskTitle(e.target.value)} required />
               </div>
               <button type="submit" className="btn btn-primary" style={{ width: '100%', marginTop: 12 }}>Save Task</button>
             </form>
@@ -784,7 +950,7 @@
             <form onSubmit={handleCreateSubtask}>
               <div className="form-group">
                 <label>Subtask Title</label>
-                <input type="text" className="form-input" placeholder="e.g. Explicit Complete Today button" value={subtaskTitle} onChange={(e) => setSubtaskTitle(e.target.value)} required />
+                <input type="text" className="form-input" placeholder="e.g. Circular LPI Score Gauge" value={subtaskTitle} onChange={(e) => setSubtaskTitle(e.target.value)} required />
               </div>
               <button type="submit" className="btn btn-primary" style={{ width: '100%', marginTop: 12 }}>Save Subtask</button>
             </form>
@@ -808,26 +974,20 @@
       const completedCount = todaySubtasks.filter(item => item.subtask.completed).length;
       const allTasksCompleted = todaySubtasks.length > 0 && completedCount === todaySubtasks.length;
 
-      // Determine Check-in Button State
-      let buttonState = 'DISABLED'; // 'CHECKED_IN' | 'ZERO_TASKS' | 'INCOMPLETE' | 'READY'
-      let buttonText = 'Complete Today';
+      let buttonState = 'DISABLED';
       let messageNotice = '';
 
       if (isTodayCheckedIn) {
         buttonState = 'CHECKED_IN';
-        buttonText = '✓ Checked In';
         messageNotice = "You've already checked in today.";
       } else if (todaySubtasks.length === 0) {
         buttonState = 'ZERO_TASKS';
-        buttonText = 'Complete Today';
         messageNotice = 'No tasks scheduled for today.';
       } else if (!allTasksCompleted) {
         buttonState = 'INCOMPLETE';
-        buttonText = 'Complete Today';
         messageNotice = 'Finish all required tasks before checking in.';
       } else {
         buttonState = 'READY';
-        buttonText = 'Complete Today 🔥';
         messageNotice = 'All required tasks finished! Press Complete Today to claim your streak.';
       }
 
@@ -838,8 +998,7 @@
               <h1 style={{ fontSize: '1.8rem' }}>Daily Check-in</h1>
               <p style={{ color: 'var(--text-muted)', fontSize: '0.95rem' }}>Complete today's required tasks to enable manual check-in!</p>
             </div>
-            
-            {/* Dynamic Check-in Button */}
+
             {buttonState === 'CHECKED_IN' ? (
               <button className="btn btn-secondary" disabled style={{ opacity: 0.8, cursor: 'not-allowed', background: 'rgba(16, 185, 129, 0.2)', borderColor: '#10b981', color: '#6ee7b7' }}>
                 <span>✓ Checked In</span>
@@ -975,13 +1134,12 @@
     };
 
     window.StatsView = function() {
-      const { getStats, streak, isTodayCheckedIn } = window.useGoals();
-      const stats = getStats();
+      const { lpiMetrics } = window.useGoals();
 
       const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
       const weeklyData = days.map((day, idx) => {
-        const relativeFactor = Math.min(10, Math.max(1, Math.round((stats.completedSubtasks * (idx + 1)) / 7)));
-        const pct = Math.min(100, Math.max(10, Math.round((relativeFactor / (stats.totalSubtasks || 5)) * 100)));
+        const relativeFactor = Math.min(10, Math.max(1, Math.round((lpiMetrics.completedSubtasks * (idx + 1)) / 7)));
+        const pct = Math.min(100, Math.max(10, Math.round((relativeFactor / (lpiMetrics.totalSubtasks || 5)) * 100)));
         return { day, count: relativeFactor, heightPct: pct };
       });
 
@@ -989,27 +1147,44 @@
         <div>
           <div className="top-bar">
             <div>
-              <h1 style={{ fontSize: '1.8rem' }}>Statistics & Analytics</h1>
-              <p style={{ color: 'var(--text-muted)', fontSize: '0.95rem' }}>Calculated live from local device storage.</p>
+              <h1 style={{ fontSize: '1.8rem' }}>Performance Analytics Engine</h1>
+              <p style={{ color: 'var(--text-muted)', fontSize: '0.95rem' }}>Calculated live from stored goals, tasks, check-ins, and streaks.</p>
+            </div>
+            <div className="badge badge-primary" style={{ padding: '8px 16px', fontSize: '0.9rem' }}>
+              LPI Score: <strong>{lpiMetrics.lpiScore} / 100</strong>
             </div>
           </div>
+
           <div className="stats-grid" style={{ marginBottom: 32 }}>
-            <div className="glass-card" style={{ padding: 28 }}>
-              <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Goal Completion Rate</p>
-              <h2 style={{ fontSize: '2.4rem', margin: '8px 0' }} className="gradient-text">{stats.completionPercentage}%</h2>
-              <div className="progress-bar-bg" style={{ margin: '8px 0 0' }}><div className="progress-bar-fill" style={{ width: `${stats.completionPercentage}%` }}></div></div>
+            <div className="glass-card" style={{ padding: 24 }}>
+              <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>LOCIN Performance Index (LPI)</p>
+              <h2 style={{ fontSize: '2.2rem', margin: '6px 0' }} className="gradient-text">{lpiMetrics.lpiScore} / 100</h2>
+              <span className="badge badge-primary" style={{ fontSize: '0.75rem' }}>{lpiMetrics.tier}</span>
             </div>
-            <div className="glass-card" style={{ padding: 28 }}>
-              <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Subtasks Checked Off</p>
-              <h2 style={{ fontSize: '2.4rem', margin: '8px 0' }}>{stats.completedSubtasks} <span style={{ fontSize: '1rem', color: 'var(--text-muted)' }}>/ {stats.totalSubtasks}</span></h2>
-              <p style={{ fontSize: '0.8rem', color: 'var(--success)' }}>✓ Saved locally</p>
+            <div className="glass-card" style={{ padding: 24 }}>
+              <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>Overall Completion Rate</p>
+              <h2 style={{ fontSize: '2.2rem', margin: '6px 0' }}>{lpiMetrics.completionRate}%</h2>
+              <span style={{ fontSize: '0.75rem', color: '#6ee7b7' }}>✓ Subtasks checked off</span>
             </div>
-            <div className="glass-card" style={{ padding: 28 }}>
-              <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Today's Check-in</p>
-              <h2 style={{ fontSize: '1.8rem', margin: '12px 0 8px' }}>{isTodayCheckedIn ? '✅ Checked In' : '○ Not Checked In'}</h2>
-              <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Streak Record: {streak.longest_streak || 0} Days</p>
+            <div className="glass-card" style={{ padding: 24 }}>
+              <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>Goal Completion Rate</p>
+              <h2 style={{ fontSize: '2.2rem', margin: '6px 0' }}>{lpiMetrics.goalCompletionPct}%</h2>
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{lpiMetrics.completedGoals} / {lpiMetrics.totalGoals} Goals Finished</span>
+            </div>
+            <div className="glass-card" style={{ padding: 24 }}>
+              <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>Task Completion Rate</p>
+              <h2 style={{ fontSize: '2.2rem', margin: '6px 0' }}>{lpiMetrics.taskCompletionPct}%</h2>
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{lpiMetrics.completedTasks} / {lpiMetrics.totalTasks} Tasks Finished</span>
             </div>
           </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 20, marginBottom: 32 }}>
+            <div className="glass-card" style={{ padding: 20 }}><p style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>Current Streak</p><h3 style={{ fontSize: '1.6rem', marginTop: 4 }}>🔥 {lpiMetrics.currentStreak} Days</h3></div>
+            <div className="glass-card" style={{ padding: 20 }}><p style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>Longest Streak</p><h3 style={{ fontSize: '1.6rem', marginTop: 4 }}>⚡ {lpiMetrics.longestStreak} Days</h3></div>
+            <div className="glass-card" style={{ padding: 20 }}><p style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>Total Active Days</p><h3 style={{ fontSize: '1.6rem', marginTop: 4 }}>📅 {lpiMetrics.daysActive} Days</h3></div>
+            <div className="glass-card" style={{ padding: 20 }}><p style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>Avg. Daily Completion</p><h3 style={{ fontSize: '1.6rem', marginTop: 4 }}>📈 {lpiMetrics.avgDailyCompletion} Subtasks/Day</h3></div>
+          </div>
+
           <div className="glass-card" style={{ padding: 32 }}>
             <h3 style={{ fontSize: '1.2rem', marginBottom: 8 }}>Weekly Activity Trend</h3>
             <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: 20 }}>Relative subtask activity distribution:</p>
@@ -1028,8 +1203,7 @@
     };
 
     window.ProfileView = function() {
-      const { profile, streak, isTodayCheckedIn, getStats, updateUserProfile, feedbackBanner } = window.useGoals();
-      const stats = getStats();
+      const { profile, streak, isTodayCheckedIn, lpiMetrics, updateUserProfile, feedbackBanner } = window.useGoals();
       const initialName = profile?.name || 'Scholar Student';
       const [nameInput, setNameInput] = useState(initialName);
       const [isEditing, setIsEditing] = useState(false);
@@ -1044,15 +1218,15 @@
       const badges = [
         { title: 'Habit Starter', desc: 'Completed 1st daily check-in', icon: '⚡', unlocked: (streak.current_streak > 0 || streak.longest_streak > 0) },
         { title: '7-Day Streak Warrior', desc: 'Reached a 7-day fire streak', icon: '🔥', unlocked: streak.current_streak >= 7 || streak.longest_streak >= 7 },
-        { title: 'Goal Crusher', desc: 'Created goals in storage', icon: '🎯', unlocked: stats.totalGoals > 0 },
-        { title: 'Local Scholar', desc: 'Privacy-First device mode', icon: '🛡️', unlocked: true }
+        { title: 'Goal Crusher', desc: 'Completed overarching goals', icon: '🎯', unlocked: lpiMetrics.completedGoals > 0 },
+        { title: 'High Achiever', desc: 'Reached LPI Score 60+', icon: '👑', unlocked: lpiMetrics.lpiScore >= 60 }
       ];
 
       return (
         <div>
           <div className="top-bar">
             <div>
-              <h1 style={{ fontSize: '1.8rem' }}>Profile & Achievements</h1>
+              <h1 style={{ fontSize: '1.8rem' }}>Profile & Performance OS</h1>
               <p style={{ color: 'var(--text-muted)', fontSize: '0.95rem' }}>Personal profile saved on your device.</p>
             </div>
           </div>
@@ -1080,11 +1254,11 @@
 
               <p style={{ color: '#6ee7b7', fontSize: '0.85rem', marginBottom: 20 }}>🛡️ Privacy Mode (Device Only)</p>
               <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: 16, textAlign: 'left', display: 'flex', flexDirection: 'column', gap: 10, fontSize: '0.85rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--text-muted)' }}>📈 LPI Score:</span><span style={{ fontWeight: 700 }}>{lpiMetrics.lpiScore} / 100</span></div>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--text-muted)' }}>🔥 Current Streak:</span><span style={{ fontWeight: 700 }}>{streak.current_streak || 0} Days</span></div>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--text-muted)' }}>📅 Today's Status:</span><span style={{ fontWeight: 700 }}>{isTodayCheckedIn ? '✅ Checked In' : '○ Not Checked In'}</span></div>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--text-muted)' }}>⚡ Longest Streak:</span><span style={{ fontWeight: 700 }}>{streak.longest_streak || 0} Days</span></div>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--text-muted)' }}>🎯 Total Goals:</span><span style={{ fontWeight: 700 }}>{stats.totalGoals}</span></div>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--text-muted)' }}>📌 Tasks Completed:</span><span style={{ fontWeight: 700 }}>{stats.completedTasks} / {stats.totalTasks}</span></div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--text-muted)' }}>🏆 Goals Finished:</span><span style={{ fontWeight: 700 }}>{lpiMetrics.completedGoals} / {lpiMetrics.totalGoals}</span></div>
               </div>
             </div>
 
@@ -1106,7 +1280,7 @@
       );
     };
 
-    // --- 7. Settings, Backup & Restore View ---
+    // --- 8. Settings View ---
     window.SettingsView = function() {
       const { handleLoadDemoData, exportBackupData, importBackupData, resetAllData, feedbackBanner, errorBanner } = window.useGoals();
       const [showResetConfirm, setShowResetConfirm] = useState(false);
@@ -1134,7 +1308,6 @@
           {errorBanner && <div className="btn-danger" style={{ padding: 12, borderRadius: 8, marginBottom: 20, fontSize: '0.85rem' }}>⚠️ {errorBanner}</div>}
           {feedbackBanner && <div className="badge badge-success" style={{ padding: '10px 16px', borderRadius: 8, marginBottom: 20, fontSize: '0.9rem', width: '100%', display: 'flex', justifyContent: 'center' }}>{feedbackBanner}</div>}
 
-          {/* Section 1: Data Management & Load Demo Data */}
           <div className="glass-card" style={{ padding: 32, marginBottom: 28 }}>
             <h2 style={{ fontSize: '1.4rem', marginBottom: 12 }}>📥 Backup & Data Controls</h2>
             <p style={{ color: 'var(--text-muted)', fontSize: '0.95rem', marginBottom: 24 }}>
@@ -1177,7 +1350,6 @@
             </div>
           </div>
 
-          {/* Section 2: Privacy First Philosophy */}
           <div id="privacy" className="glass-card" style={{ padding: 32, marginBottom: 28, borderColor: 'rgba(16, 185, 129, 0.4)' }}>
             <h2 style={{ fontSize: '1.4rem', marginBottom: 12, color: '#6ee7b7' }}>🛡️ Privacy First Philosophy</h2>
             <blockquote style={{ fontSize: '1.05rem', lineHeight: 1.6, color: 'var(--text-main)', fontStyle: 'italic', borderLeft: '3px solid #10b981', paddingLeft: 16, margin: '16px 0' }}>
@@ -1185,37 +1357,6 @@
             </blockquote>
           </div>
 
-          {/* Section 3: Future Roadmap */}
-          <div className="glass-card" style={{ padding: 32 }}>
-            <h2 style={{ fontSize: '1.4rem', marginBottom: 16 }}>🗺️ Project Roadmap</h2>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
-              <div style={{ background: 'rgba(99, 102, 241, 0.1)', padding: 20, borderRadius: 'var(--radius-sm)', border: '1px solid rgba(99, 102, 241, 0.3)' }}>
-                <h3 style={{ fontSize: '1.1rem', marginBottom: 12, color: '#a5b4fc' }}>Version 1.0 (Current)</h3>
-                <ul style={{ listStyleType: 'none', padding: 0, display: 'flex', flexDirection: 'column', gap: 8, fontSize: '0.9rem' }}>
-                  <li>✅ Local-first offline storage</li>
-                  <li>✅ No account or signup required</li>
-                  <li>✅ Fast instant performance</li>
-                  <li>✅ Privacy-first device design</li>
-                  <li>✅ Works 100% offline</li>
-                  <li>✅ JSON Backup & Restore</li>
-                </ul>
-              </div>
-
-              <div style={{ background: 'rgba(255, 255, 255, 0.02)', padding: 20, borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)' }}>
-                <h3 style={{ fontSize: '1.1rem', marginBottom: 12, color: 'var(--text-muted)' }}>Planned Future Versions</h3>
-                <ul style={{ listStyleType: 'none', padding: 0, display: 'flex', flexDirection: 'column', gap: 8, fontSize: '0.9rem', color: 'var(--text-muted)' }}>
-                  <li>🔹 Optional Cloud Synchronization</li>
-                  <li>🔹 Google & Email OAuth Login</li>
-                  <li>🔹 Cross-device automatic sync</li>
-                  <li>🔹 Encrypted Cloud Backups</li>
-                  <li>🔹 Shared Goals & Collaboration</li>
-                  <li>🔹 Web Push Reminders</li>
-                </ul>
-              </div>
-            </div>
-          </div>
-
-          {/* Reset Confirmation Modal */}
           <window.Modal isOpen={showResetConfirm} onClose={() => setShowResetConfirm(false)} title="Confirm Reset All Local Data">
             <p style={{ color: 'var(--text-muted)', marginBottom: 20 }}>
               Are you sure? This will <strong>permanently delete all locally stored goals, tasks, fire streaks, and calendar history</strong> on this browser.
@@ -1231,7 +1372,7 @@
       );
     };
 
-    // --- 8. Main App Layout & View Router ---
+    // --- 9. Main App Layout & View Router ---
     function AppContent() {
       const { authView, setAuthView } = window.useAuth();
       const [activeTab, setActiveTab] = useState('home');
@@ -1259,6 +1400,8 @@
         <div className="dashboard-layout">
           <window.Sidebar activeTab={activeTab} setActiveTab={setActiveTab} />
           <window.WelcomeModal />
+          <window.CascadeModal />
+          <window.CelebrationModal />
           <main className="dashboard-main">
             {activeTab === 'home' && <window.DashboardHome setActiveTab={setActiveTab} />}
             {activeTab === 'goals' && <window.GoalManager />}

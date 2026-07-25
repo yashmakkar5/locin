@@ -1,6 +1,7 @@
 /**
  * ============================================================================
- * Subtask Storage Module (Subtask Level 3 CRUD & Checkbox Persistence)
+ * Subtask Storage Module (Subtask Level 3 CRUD & Completion Controls)
+ * Supports completedAt timestamps, subtask completion toggles, and cascade detection.
  * ============================================================================
  */
 
@@ -15,6 +16,7 @@ window.subtaskStorage = {
       task_id: taskId,
       title: title.trim(),
       completed: false,
+      completedAt: null,
       created_at: new Date().toISOString()
     };
 
@@ -45,6 +47,8 @@ window.subtaskStorage = {
    */
   toggleSubtask(goalId, taskId, subtaskId) {
     const store = window.storageManager.getStore();
+    let allSubtasksDone = false;
+    let targetTask = null;
 
     store.goals = store.goals.map(goal => {
       if (goal.id === goalId) {
@@ -54,14 +58,21 @@ window.subtaskStorage = {
             if (task.id === taskId) {
               const updatedSubtasks = (task.subtasks || []).map(st => {
                 if (st.id === subtaskId) {
-                  return { ...st, completed: !st.completed };
+                  const nextState = !st.completed;
+                  return {
+                    ...st,
+                    completed: nextState,
+                    completedAt: nextState ? new Date().toISOString() : null
+                  };
                 }
                 return st;
               });
-              const allDone = updatedSubtasks.length > 0 && updatedSubtasks.every(st => st.completed);
+
+              allSubtasksDone = updatedSubtasks.length > 0 && updatedSubtasks.every(st => st.completed);
+              targetTask = task;
+
               return {
                 ...task,
-                completed: allDone,
                 subtasks: updatedSubtasks
               };
             }
@@ -73,6 +84,11 @@ window.subtaskStorage = {
     });
 
     window.storageManager.saveStore(store);
+
+    return {
+      allSubtasksDone,
+      task: targetTask
+    };
   },
 
   /**
