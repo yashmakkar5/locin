@@ -1,6 +1,7 @@
 /**
  * ============================================================================
  * Goal Storage Module (Goal Level 1 CRUD Operations)
+ * Provides both window.goalStorage and window.goalService interfaces.
  * ============================================================================
  */
 
@@ -33,6 +34,10 @@ window.goalStorage = {
     return newGoal;
   },
 
+  createGoal(title, category = 'General', color = '#6366f1') {
+    return this.addGoal(title, category, color);
+  },
+
   /**
    * Delete a Goal by ID
    */
@@ -43,3 +48,6 @@ window.goalStorage = {
     return store.goals;
   }
 };
+
+// Service Alias
+window.goalService = window.goalStorage;
