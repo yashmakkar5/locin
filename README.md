@@ -1,108 +1,99 @@
-# Locin – Phase 2: Fully Functional Production Application
+# Locin – Privacy-First, Local-First Productivity Web Application
 
-> **Project Status**: Phase 2 Complete (Production MVP Connected to Supabase)  
-> **Tech Stack**: React 18, JavaScript (ES6 Modules), Vanilla CSS (Glassmorphism), Supabase Auth & PostgreSQL DB  
-
----
-
-## 📋 Deliverables & Verification Summary
-
-All prototype mock data, hardcoded fallback arrays, and demo bypasses have been completely removed. The project is now a **fully functional application** backed by **Supabase Authentication** and **PostgreSQL Database**.
+> **Project Architecture**: 100% Privacy-First, Offline-Capable, Local-First Application  
+> **Tech Stack**: React 18, JavaScript (ES6 Modules), Custom Glassmorphic Vanilla CSS  
+> **Backend / Server**: NONE required (Zero login, zero database, zero external tracking)  
 
 ---
 
-## 📁 Folder Structure Explanation
+## 🌟 Executive Summary
+
+**Locin** is a privacy-first web application designed for students and developers to set high-level goals, break them down into a 3-tier actionable hierarchy (**Goal → Task → Subtask**), build **Duolingo-inspired Fire Streaks 🔥**, track monthly calendar heatmaps, and measure productivity—all stored **100% privately inside your browser's local storage**.
+
+No accounts, signups, or cloud servers are required. Your data never leaves your device.
+
+---
+
+## 🛡️ Privacy-First Philosophy
+
+> *"Your productivity data stays entirely on your device. LOCIN does not require an account and does not upload your information to any server. Your goals, tasks, streaks, and statistics remain private. Future versions may offer optional cloud sync for users who want access across multiple devices."*
+
+---
+
+## 📥 Backup & Restore Guide
+
+Locin includes a dedicated **Backup & Restore** engine inside **Settings & Backup**:
+
+### 1. Export Data (JSON Backup)
+Click **Download Backup JSON** to download a copy of all your goals, tasks, subtasks, streaks, calendar history, statistics, and settings as a JSON file named:
+```
+locin-backup-YYYY-MM-DD.json
+```
+
+### 2. Import Data (Restore JSON)
+Click **Select JSON File to Restore** and select a previously exported `locin-backup-YYYY-MM-DD.json` file. The application validates the file schema, restores all records to local storage, and refreshes the application automatically.
+
+### 3. Reset All Data
+Click **Reset All Data** to clear all stored goals, tasks, streaks, and calendar history after confirming the warning dialog (`"Are you sure? This will permanently delete all locally stored data."`).
+
+---
+
+## 📱 Mobile Compatibility & Performance
+
+- **Responsive Grid & Flexbox**: Optimized for Desktop, Android, iPhone Safari, and Tablets.
+- **Touch Friendly**: Large touch targets, custom styled checkboxes, and intuitive drawer navigation.
+- **Offline Capable**: Works 100% offline without requiring internet access after loading assets.
+
+---
+
+## 🗺️ Project Roadmap
+
+### Version 1.0 (Current Version)
+- ✅ Local-first browser storage (`localStorage`)
+- ✅ Zero account or signup required
+- ✅ Fast, instant performance
+- ✅ Privacy-first device design
+- ✅ Works 100% offline
+- ✅ JSON Backup & Restore engine
+
+### Planned Future Versions
+- 🔹 Optional Cloud Synchronization
+- 🔹 Google & Email OAuth Login
+- 🔹 Cross-device automatic synchronization
+- 🔹 Encrypted Cloud Backups
+- 🔹 Shared Goals & Collaboration
+- 🔹 Web Push Notifications & Reminders
+
+---
+
+## 📁 File Structure
 
 ```
 lockin/
-├── index.html                   # Single Page Application HTML5 Shell & Dependencies
-├── .env.example                 # Supabase credentials template
-├── SUPABASE_GUIDE.md            # Complete PostgreSQL DDL Script & RLS Policies
-├── README.md                    # Production Architecture Documentation
+├── index.html                   # Single Page Application HTML5 Shell & Inline Components
+├── README.md                    # Project Architecture & Usage Documentation
 ├── css/
 │   ├── main.css                 # CSS Custom Properties, Theme Tokens, Reset
-│   ├── landing.css              # Hero section, feature cards, quote carousel, compounding calculator
-│   ├── auth.css                 # Auth layout container, mesh backdrop, quotes side banner
+│   ├── landing.css              # Hero section, feature cards, quote carousel, compounding tool
+│   ├── auth.css                 # Container styles
 │   └── dashboard.css            # Sidebar layout, 3-tier hierarchy cards, calendar heatmap, charts
 └── js/
-    ├── app.js                   # Application Main Layout Router & React Root Render
-    ├── services/
-    │   ├── supabaseClient.js    # Supabase JS SDK Initializer
-    │   ├── authService.js       # Auth API functions (Sign Up, Sign In, Google OAuth, Sign Out)
-    │   └── goalService.js       # PostgreSQL DB query layer (Goals, Tasks, Subtasks, Streaks, Checkins)
-    ├── context/
-    │   ├── AuthContext.js       # Real-time Auth Session Listener & Protected Routes
-    │   └── GoalContext.js       # Global Reactive DB State Management
-    └── components/
-        ├── common/ (Header, Modal, LoadingSpinner)
-        ├── landing/ (HeroSection, FeaturesSection, MotivationSection, CompoundingSection, FinalCtaSection)
-        ├── auth/ (AuthPage)
-        └── dashboard/ (Sidebar, DashboardHome, GoalManager, DailyCheckIn, CalendarView, StatsView, ProfileView)
+    └── services/
+        └── storageService.js    # LocalStorage Manager & JSON Backup/Restore Engine
 ```
 
 ---
 
-## 🗄️ Database Schema & RLS Policies
+## 🚀 How to Run Locally
 
-Locin uses **6 normalized tables** protected by **Row-Level Security (RLS)**:
+You can run Locin in your browser in two easy ways:
 
-1. `profiles`: `id (UUID PK)`, `email`, `full_name`, `avatar_url`, `created_at`.
-2. `streaks`: `id (UUID PK)`, `user_id (UUID FK UNIQUE)`, `current_streak`, `longest_streak`, `last_checkin_date`, `updated_at`.
-3. `goals`: `id (UUID PK)`, `user_id (UUID FK)`, `title`, `category`, `color`, `created_at`.
-4. `tasks`: `id (UUID PK)`, `goal_id (UUID FK)`, `user_id (UUID FK)`, `title`, `completed`, `created_at`.
-5. `subtasks`: `id (UUID PK)`, `task_id (UUID FK)`, `user_id (UUID FK)`, `title`, `completed`, `created_at`.
-6. `daily_checkins`: `id (UUID PK)`, `user_id (UUID FK)`, `checkin_date (DATE)`, `subtasks_completed_count`, `CONSTRAINT unique_user_checkin_date UNIQUE(user_id, checkin_date)`.
+### Option A: Local Web Server (Recommended)
+Open a terminal in the project folder and run:
+```bash
+python -m http.server 3000
+```
+Then visit: **[http://localhost:3000](http://localhost:3000)**
 
-Refer to [`SUPABASE_GUIDE.md`](file:///C:/Users/YASH/OneDrive/Desktop/lockin/SUPABASE_GUIDE.md) for the ready-to-run DDL script.
-
----
-
-## ⚡ Fire Streak & Daily Check-in Rules
-
-- **Calendar Date Math**: Streak calculation uses exact calendar dates (`YYYY-MM-DD`).
-- **Duplicate Prevention**: A database constraint `UNIQUE(user_id, checkin_date)` blocks multiple check-ins on the same day.
-- **Streak Calculation**:
-  - Consecutive day check-in (`TODAY - LAST_CHECKIN == 1 day`) → `current_streak += 1`.
-  - Same day check-in → `current_streak` unchanged.
-  - Missed one full day (`TODAY - LAST_CHECKIN > 1 day`) → `current_streak` resets to 1.
-- Both `current_streak` and `longest_streak` are stored in Supabase and persist across logins.
-
----
-
-## 🚀 Environment Setup & How to Run
-
-1. Open `js/services/supabaseClient.js` (or create `.env`) and supply your Supabase URL & Anon Key:
-   ```javascript
-   window.SUPABASE_URL = "https://<your-project-id>.supabase.co";
-   window.SUPABASE_ANON_KEY = "your-anon-public-key";
-   ```
-2. Double-click `index.html` to open the web app in any browser.
-
----
-
-## 🛠️ Modified & Added Files List
-
-- `index.html` (Added Supabase JS SDK v2 CDN script)
-- `js/components/common/LoadingSpinner.js` (NEW - Loading spinner component)
-- `js/services/supabaseClient.js` (Configured real Supabase client initialization)
-- `js/services/authService.js` (Real Supabase Auth functions)
-- `js/services/goalService.js` (Real database queries for Goals, Tasks, Subtasks, Streaks, Checkins)
-- `js/context/AuthContext.js` (Session listener and protected routes)
-- `js/context/GoalContext.js` (Global state synced with Supabase DB)
-- `js/components/auth/AuthPage.js` (Production auth UI)
-- `js/components/dashboard/DashboardHome.js` (Live metrics from Supabase)
-- `js/components/dashboard/GoalManager.js` (3-tier hierarchy CRUD synced to DB)
-- `js/components/dashboard/DailyCheckIn.js` (Real check-in logic)
-- `js/components/dashboard/CalendarView.js` (Queries `daily_checkins` table)
-- `js/components/dashboard/StatsView.js` (Real-time analytics)
-- `js/components/dashboard/ProfileView.js` (Profile update form synced to `profiles` table)
-- `js/app.js` (Updated entrypoint with auth loading state)
-- `SUPABASE_GUIDE.md` (Complete SQL schema & RLS DDL script)
-- `README.md` (Updated documentation)
-
----
-
-## 📌 Known Limitations & Future Improvements
-
-1. **Avatar Uploads**: Currently supports full name updating. Custom avatar image uploads can be extended using Supabase Storage buckets.
-2. **Push Notifications**: Daily check-in reminders can be integrated via Web Push API or Supabase Edge Functions.
+### Option B: Direct File Open
+Double click [index.html](file:///C:/Users/YASH/OneDrive/Desktop/lockin/index.html) in `C:\Users\YASH\OneDrive\Desktop\lockin`.
