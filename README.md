@@ -96,4 +96,4 @@ python -m http.server 3000
 Then visit: **[http://localhost:3000](http://localhost:3000)**
 
 ### Option B: Direct File Open
-Double click [index.html](file:///C:/Users/YASH/OneDrive/Desktop/lockin/index.html) in `C:\Users\YASH\OneDrive\Desktop\lockin`.
+
